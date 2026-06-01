@@ -1,6 +1,7 @@
 package com.charging.mock.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class ChargeRecord {
 
+    @JsonAlias({"id", "recordId"})
     private String id;
     private String userId;
     private String chargerId;
