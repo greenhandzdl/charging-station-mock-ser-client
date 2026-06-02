@@ -28,11 +28,32 @@ public class ChargeSimulator {
     private volatile boolean charging;
 
     private double currentEnergyKwh;
+    private String currentSimulationId;
 
     public ChargeSimulator() {
         this.charging = false;
         this.currentEnergyKwh = 0.0;
         this.startTime = null;
+        this.currentSimulationId = null;
+    }
+
+    public String getCurrentSimulationId() {
+        return currentSimulationId;
+    }
+
+    public void setCurrentSimulationId(String id) {
+        this.currentSimulationId = id;
+    }
+
+    /**
+     * Reset the simulator to its initial state. Clears energy, simulation ID,
+     * and charging flag. Safe to call even if currently charging.
+     */
+    public synchronized void reset() {
+        this.charging = false;
+        this.currentEnergyKwh = 0.0;
+        this.startTime = null;
+        this.currentSimulationId = null;
     }
 
     /**

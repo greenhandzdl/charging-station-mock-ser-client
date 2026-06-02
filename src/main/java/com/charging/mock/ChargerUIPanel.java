@@ -260,7 +260,7 @@ public class ChargerUIPanel extends JPanel {
         refreshChargersBtn.setEnabled(false);
 
         setStatusText("充电中... 记录 #" + abbreviateId(record.getId()), COLOR_CHARGING);
-        generateQrCode(record);
+        generateQrForRecord(record);
 
         // Update the time label with start time
         timeLabel.setText("时长: 0 min  (开始: " + (sim.getStartTime() != null
@@ -379,9 +379,29 @@ public class ChargerUIPanel extends JPanel {
         }
     }
 
-    private void generateQrCode(ChargeRecord record) {
-        // Encode chargerId, recordId, and a session token in a JSON-like format
-        // that the Flutter client can parse when scanning
+    /**
+     * Generate a QR code containing charger identity for Flutter to scan.
+     * Flutter scans this QR and calls the backend start-charge API directly.
+     */
+    public void generateQrForCharger(String chargerId) {
+        String qrData = String.format(
+                "{\"chargerId\":\"%s\",\"stationName\":\"%s\"}",
+                chargerId,
+                chargerCombo.getSelectedItem() != null
+                        ? chargerCombo.getSelectedItem().toString()
+                        : "unknown"
+        );
+
+        BufferedImage qrImage = QrCodeGenerator.generateQR(qrData, 200, 200);
+        if (qrImage != null) {
+            qrCodeLabel.setIcon(new ImageIcon(qrImage));
+            qrCodeLabel.setText("");
+        } else {
+            qrCodeLabel.setText("QR生成失败");
+        }
+    }
+
+    private void generateQrForRecord(ChargeRecord record) {
         String qrData = String.format(
                 "{\"chargerId\":\"%s\",\"recordId\":\"%s\",\"sessionToken\":\"mock_%s\"}",
                 record.getChargerId(),
