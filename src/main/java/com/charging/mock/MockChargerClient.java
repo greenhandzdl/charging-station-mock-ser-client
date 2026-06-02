@@ -1,6 +1,7 @@
 package com.charging.mock;
 
 import com.charging.mock.config.AppConfig;
+import com.charging.mock.config.TestDataProvider;
 import com.charging.mock.model.ChargeRecord;
 import com.charging.mock.service.ApiClient;
 import com.charging.mock.service.ApiClient.ApiException;
@@ -68,10 +69,10 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
             }
 
             private void performStartup() {
-                boolean ok = doLogin();
-                if (ok) {
-                    loadChargers();
-                }
+                // Attempt optional login for polling sync (non-fatal if backend is down).
+                // Charger data is always loaded from local test data.
+                doLogin();
+                loadChargers();
             }
         });
     }
@@ -95,11 +96,15 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         menuBar.add(fileMenu);
 
         JMenu simMenu = new JMenu("操作");
-        JMenuItem refreshItem = new JMenuItem("刷新充电桩列表");
-        refreshItem.addActionListener(e -> loadChargers());
-        simMenu.add(refreshItem);
+        JMenuItem resetItem = new JMenuItem("重置充电桩状态");
+        resetItem.addActionListener(e -> {
+            loadChargers();
+            chargerPanel.setStatusText("充电桩状态已重置", new Color(0x90, 0xEE, 0x90));
+        });
+        simMenu.add(resetItem);
 
         JMenuItem pollItem = new JMenuItem("手动轮询充电状态");
+        pollItem.setEnabled(false);
         pollItem.addActionListener(e -> pollAndSync());
         simMenu.add(pollItem);
 
@@ -114,42 +119,28 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
 
     // ===== Startup =====
 
-    private boolean doLogin() {
+    private void doLogin() {
         try {
             String token = apiClient.login(AppConfig.MOCK_USER_USERNAME, AppConfig.MOCK_USER_PASSWORD);
             this.authenticated = true;
             System.out.println("Login successful. Token: " + token.substring(0, Math.min(20, token.length())) + "...");
             setTitle("Mock Charger Client - 已认证 [" + AppConfig.MOCK_USER_USERNAME + "]");
-            return true;
-        } catch (ApiException e) {
-            JOptionPane.showMessageDialog(this,
-                    "登录失败: " + e.getMessage(),
-                    "认证错误", JOptionPane.ERROR_MESSAGE);
-            this.authenticated = false;
-            return false;
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    "无法连接后端: " + e.getMessage(),
-                    "连接错误", JOptionPane.ERROR_MESSAGE);
+            System.out.println("Backend login failed (non-fatal): " + e.getMessage());
+            System.out.println("Mock will run with local test data only; polling sync disabled.");
             this.authenticated = false;
-            return false;
         }
     }
 
+    /**
+     * Load charger data from local test data provider.
+     * No backend API call is needed — this simulates the charger's built-in
+     * hardware configuration (station name, charger code, type, etc.).
+     */
     private void loadChargers() {
-        if (!authenticated) {
-            chargerPanel.showError("未认证", "请先登录后端服务");
-            return;
-        }
-        try {
-            List<Map<String, Object>> chargers = apiClient.getChargers();
-            chargerPanel.setChargerList(chargers);
-            System.out.println("Loaded " + chargers.size() + " chargers");
-        } catch (ApiException e) {
-            chargerPanel.showError("获取充电桩失败", e.getMessage());
-        } catch (Exception e) {
-            chargerPanel.showError("连接错误", e.getMessage());
-        }
+        List<Map<String, Object>> chargers = TestDataProvider.getChargers();
+        chargerPanel.setChargerList(chargers);
+        System.out.println("Loaded " + chargers.size() + " chargers from local test data");
     }
 
     // ===== UI Timer tick =====
