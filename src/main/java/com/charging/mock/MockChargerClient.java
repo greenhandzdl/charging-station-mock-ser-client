@@ -3,14 +3,10 @@ package com.charging.mock;
 import com.charging.mock.config.AppConfig;
 import com.charging.mock.config.NetworkSimulator;
 import com.charging.mock.config.TestDataProvider;
-import com.charging.mock.model.ChargeRecord;
 import com.charging.mock.service.ApiClient;
-import com.charging.mock.service.ApiClient.ApiException;
-import com.charging.mock.service.ChargeSimulator;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.List;
@@ -25,8 +21,6 @@ import java.util.Map;
  *   <li>Display available chargers (simulating the charger's built-in screen)</li>
  *   <li>Simulate plug/unplug cable interaction</li>
  *   <li>Generate a QR code containing charger info for the Flutter app to scan</li>
- *   <li>Display real-time charging progress (energy, time, power) once charge is active</li>
- *   <li>Poll backend for charge status to stay in sync with Flutter-started sessions</li>
  *   <li>Send periodic heartbeat to monitor backend connectivity</li>
  * </ul>
  *
@@ -34,15 +28,14 @@ import java.util.Map;
  * handled by the Flutter client after scanning the QR code, just like a real
  * charging station where the phone app controls activation and payment.
  */
-public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerUICallbacks {
+public class MockChargerClient extends JFrame
+        implements ChargerUIPanel.ChargerUICallbacks, ChargerUIPanel.TestScenarioActions {
 
     private static final int HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 
     private final ChargerUIPanel chargerPanel;
-    private final ChargeSimulator chargeSimulator;
     private final ApiClient apiClient;
 
-    private Timer uiTimer;
     private Timer heartbeatTimer;
     private boolean authenticated;
     private boolean heartbeatAlive;
@@ -51,13 +44,11 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
     public MockChargerClient() {
         super("Mock Charger Client - 充电站管理系统");
 
-        this.chargeSimulator = new ChargeSimulator();
         this.apiClient = new ApiClient(AppConfig.BACKEND_URL);
-        this.chargerPanel = new ChargerUIPanel(this);
+        this.chargerPanel = new ChargerUIPanel(this, this);
 
         initFrame();
         initMenuBar();
-        initUiTimer();
         initHeartbeatTimer();
     }
 
@@ -66,7 +57,7 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         setLayout(new BorderLayout());
         add(chargerPanel, BorderLayout.CENTER);
         pack();
-        setMinimumSize(new Dimension(520, 720));
+        setMinimumSize(new Dimension(520, 740));
         setLocationRelativeTo(null);
 
         addWindowListener(new WindowAdapter() {
@@ -90,15 +81,7 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         JMenu fileMenu = new JMenu("File");
         JMenuItem exitItem = new JMenuItem("Exit");
         exitItem.setAccelerator(KeyStroke.getKeyStroke("ctrl Q"));
-        exitItem.addActionListener(e -> {
-            if (chargeSimulator.isCharging()) {
-                int r = JOptionPane.showConfirmDialog(this,
-                        "充电进行中，确定退出？", "确认退出",
-                        JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                if (r != JOptionPane.YES_OPTION) return;
-            }
-            System.exit(0);
-        });
+        exitItem.addActionListener(e -> System.exit(0));
         fileMenu.add(exitItem);
         menuBar.add(fileMenu);
 
@@ -111,11 +94,6 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
             chargerPanel.setStatusText("充电桩状态已重置", new Color(0x90, 0xEE, 0x90));
         });
         simMenu.add(resetItem);
-
-        JMenuItem pollItem = new JMenuItem("手动轮询充电状态");
-        pollItem.setEnabled(false);
-        pollItem.addActionListener(e -> pollAndSync());
-        simMenu.add(pollItem);
 
         simMenu.addSeparator();
 
@@ -135,17 +113,14 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         // ---- Test Scenarios menu (测试场景) ----
         JMenu testMenu = new JMenu("测试场景");
 
-        // Intermittent network: offline 15s then auto-reconnect
         JMenuItem intermittentNetworkItem = new JMenuItem("断网测试");
         intermittentNetworkItem.addActionListener(e -> runIntermittentNetworkTest());
         testMenu.add(intermittentNetworkItem);
 
-        // Backend restart simulation: heartbeat fails for 20s then recovers
         JMenuItem serverRestartItem = new JMenuItem("服务器重启测试");
         serverRestartItem.addActionListener(e -> runServerRestartTest());
         testMenu.add(serverRestartItem);
 
-        // Charger offline: stop heartbeat, mark charger offline
         JMenuItem chargerOfflineItem = new JMenuItem("充电桩离线测试");
         chargerOfflineItem.addActionListener(e -> runChargerOfflineTest());
         testMenu.add(chargerOfflineItem);
@@ -155,16 +130,12 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         setJMenuBar(menuBar);
     }
 
-    private void initUiTimer() {
-        uiTimer = new Timer(1000, this::onUiTick);
-    }
-
     private void initHeartbeatTimer() {
-        heartbeatTimer = new Timer(HEARTBEAT_INTERVAL_MS, this::onHeartbeatTick);
+        heartbeatTimer = new Timer(HEARTBEAT_INTERVAL_MS, e -> onHeartbeatTick());
         heartbeatTimer.setInitialDelay(5_000); // first heartbeat after 5s
     }
 
-    // ===== Heartbeat =====
+    // ===== Heartbeat (simplified: just check connectivity) =====
 
     private void startHeartbeat() {
         if (!heartbeatTimer.isRunning()) {
@@ -180,7 +151,7 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         }
     }
 
-    private void onHeartbeatTick(ActionEvent e) {
+    private void onHeartbeatTick() {
         // If offline mode is active, immediately mark heartbeat as failed
         if (NetworkSimulator.isOffline()) {
             setHeartbeatAlive(false);
@@ -338,17 +309,6 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         System.out.println("Loaded " + chargers.size() + " chargers from local test data");
     }
 
-    // ===== UI Timer tick =====
-
-    private void onUiTick(ActionEvent e) {
-        if (chargeSimulator.isCharging()) {
-            chargeSimulator.tick();
-            chargerPanel.refreshFromSimulator(chargeSimulator);
-            // Poll backend periodically to sync with Flutter's charge session
-            pollAndSync();
-        }
-    }
-
     // ===== ChargerUICallbacks implementation =====
 
     @Override
@@ -364,7 +324,7 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
             return false;
         }
         selectedChargerId = chargerId;
-        // Generate QR code for Flutter to scan — contains charger ID info
+        // Regenerate QR for the plugged charger
         chargerPanel.generateQrForCharger(chargerId);
         chargerPanel.setStatusText("已插枪 — 请使用Flutter App扫描二维码启动充电",
                 new Color(0xFF, 0xE4, 0xB5));
@@ -373,67 +333,26 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
 
     @Override
     public boolean onUnplug() {
-        if (chargeSimulator.isCharging()) {
-            JOptionPane.showMessageDialog(chargerPanel,
-                    "充电进行中，请使用Flutter App停止充电后再拔枪",
-                    "操作提示", JOptionPane.WARNING_MESSAGE);
-            return false;
-        }
         selectedChargerId = null;
-        chargeSimulator.reset();
         chargerPanel.resetToIdle();
         return true;
     }
 
+    // ===== TestScenarioActions implementation =====
+
     @Override
-    public void onStartCharge(String chargerId) {
-        // NOTE: start charge is initiated by Flutter scanning QR and calling the API.
-        // This button is a fallback for testing without Flutter.
-        // Instead of calling the API directly, show QR and tell user to scan.
-        chargerPanel.generateQrForCharger(chargerId);
-        chargerPanel.setStatusText(
-                "请使用Flutter App扫描下方二维码启动充电",
-                Color.ORANGE);
+    public void onIntermittentNetwork() {
+        runIntermittentNetworkTest();
     }
 
     @Override
-    public void onStopCharge() {
-        // NOTE: stop charge is initiated by Flutter calling the API.
-        // The Mock charger just displays the current state.
-        // This button is a fallback: it will local-stop and tell user.
-        if (!chargeSimulator.isCharging()) {
-            chargerPanel.showError("未在充电", "当前无活跃充电会话");
-            return;
-        }
-        chargerPanel.setStatusText("请使用Flutter App停止充电", Color.ORANGE);
+    public void onServerRestart() {
+        runServerRestartTest();
     }
 
-    // ===== Backend sync =====
-
-    /**
-     * Poll the backend for the current charge record status.
-     * This keeps the Mock charger display in sync with the Flutter-started session.
-     */
-    private void pollAndSync() {
-        if (!authenticated || chargeSimulator.getCurrentSimulationId() == null) return;
-
-        try {
-            ChargeRecord record = apiClient.getChargeStatus(chargeSimulator.getCurrentSimulationId());
-            if ("COMPLETED".equals(record.getStatus())) {
-                // Session ended by Flutter — stop local simulation
-                ChargeSimulator.SimulationResult result = chargeSimulator.stopSimulation();
-                uiTimer.stop();
-                chargerPanel.onChargeStopped(record, result);
-            }
-        } catch (ApiException e) {
-            if (e.getStatusCode() == 404) {
-                // Record not found — simulation was reset
-                chargeSimulator.reset();
-            }
-            // Other errors: keep simulating silently
-        } catch (Exception ignored) {
-            // Network errors during polling are non-fatal
-        }
+    @Override
+    public void onChargerOffline() {
+        runChargerOfflineTest();
     }
 
     // ===== Main entry point =====
