@@ -1,6 +1,7 @@
 package com.charging.mock;
 
 import com.charging.mock.config.AppConfig;
+import com.charging.mock.config.NetworkSimulator;
 import com.charging.mock.config.TestDataProvider;
 import com.charging.mock.model.ChargeRecord;
 import com.charging.mock.service.ApiClient;
@@ -26,6 +27,7 @@ import java.util.Map;
  *   <li>Generate a QR code containing charger info for the Flutter app to scan</li>
  *   <li>Display real-time charging progress (energy, time, power) once charge is active</li>
  *   <li>Poll backend for charge status to stay in sync with Flutter-started sessions</li>
+ *   <li>Send periodic heartbeat to monitor backend connectivity</li>
  * </ul>
  *
  * <p>Important: This client does NOT call start/stop charge APIs — those are
@@ -34,12 +36,16 @@ import java.util.Map;
  */
 public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerUICallbacks {
 
+    private static final int HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+
     private final ChargerUIPanel chargerPanel;
     private final ChargeSimulator chargeSimulator;
     private final ApiClient apiClient;
 
     private Timer uiTimer;
+    private Timer heartbeatTimer;
     private boolean authenticated;
+    private boolean heartbeatAlive;
     private String selectedChargerId;
 
     public MockChargerClient() {
@@ -52,6 +58,7 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         initFrame();
         initMenuBar();
         initUiTimer();
+        initHeartbeatTimer();
     }
 
     private void initFrame() {
@@ -69,10 +76,9 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
             }
 
             private void performStartup() {
-                // Attempt optional login for polling sync (non-fatal if backend is down).
-                // Charger data is always loaded from local test data.
                 doLogin();
                 loadChargers();
+                startHeartbeat();
             }
         });
     }
@@ -80,6 +86,7 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
     private void initMenuBar() {
         JMenuBar menuBar = new JMenuBar();
 
+        // ---- File menu ----
         JMenu fileMenu = new JMenu("File");
         JMenuItem exitItem = new JMenuItem("Exit");
         exitItem.setAccelerator(KeyStroke.getKeyStroke("ctrl Q"));
@@ -95,7 +102,9 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         fileMenu.add(exitItem);
         menuBar.add(fileMenu);
 
+        // ---- Operation menu (操作) ----
         JMenu simMenu = new JMenu("操作");
+
         JMenuItem resetItem = new JMenuItem("重置充电桩状态");
         resetItem.addActionListener(e -> {
             loadChargers();
@@ -108,13 +117,198 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
         pollItem.addActionListener(e -> pollAndSync());
         simMenu.add(pollItem);
 
+        simMenu.addSeparator();
+
+        // Toggle network online/offline
+        JCheckBoxMenuItem networkToggleItem = new JCheckBoxMenuItem("模拟断网（离线模式）");
+        networkToggleItem.addActionListener(e -> {
+            boolean offline = NetworkSimulator.toggle();
+            networkToggleItem.setSelected(offline);
+            String statusText = offline ? "网络已断开（离线模式）" : "网络已恢复（在线模式）";
+            Color color = offline ? Color.RED : new Color(0x90, 0xEE, 0x90);
+            chargerPanel.setStatusText(statusText, color);
+        });
+        simMenu.add(networkToggleItem);
+
         menuBar.add(simMenu);
+
+        // ---- Test Scenarios menu (测试场景) ----
+        JMenu testMenu = new JMenu("测试场景");
+
+        // Intermittent network: offline 15s then auto-reconnect
+        JMenuItem intermittentNetworkItem = new JMenuItem("断网测试");
+        intermittentNetworkItem.addActionListener(e -> runIntermittentNetworkTest());
+        testMenu.add(intermittentNetworkItem);
+
+        // Backend restart simulation: heartbeat fails for 20s then recovers
+        JMenuItem serverRestartItem = new JMenuItem("服务器重启测试");
+        serverRestartItem.addActionListener(e -> runServerRestartTest());
+        testMenu.add(serverRestartItem);
+
+        // Charger offline: stop heartbeat, mark charger offline
+        JMenuItem chargerOfflineItem = new JMenuItem("充电桩离线测试");
+        chargerOfflineItem.addActionListener(e -> runChargerOfflineTest());
+        testMenu.add(chargerOfflineItem);
+
+        menuBar.add(testMenu);
 
         setJMenuBar(menuBar);
     }
 
     private void initUiTimer() {
         uiTimer = new Timer(1000, this::onUiTick);
+    }
+
+    private void initHeartbeatTimer() {
+        heartbeatTimer = new Timer(HEARTBEAT_INTERVAL_MS, this::onHeartbeatTick);
+        heartbeatTimer.setInitialDelay(5_000); // first heartbeat after 5s
+    }
+
+    // ===== Heartbeat =====
+
+    private void startHeartbeat() {
+        if (!heartbeatTimer.isRunning()) {
+            heartbeatTimer.start();
+            System.out.println("[Heartbeat] Started (interval: " + HEARTBEAT_INTERVAL_MS + "ms)");
+        }
+    }
+
+    private void stopHeartbeat() {
+        if (heartbeatTimer.isRunning()) {
+            heartbeatTimer.stop();
+            System.out.println("[Heartbeat] Stopped");
+        }
+    }
+
+    private void onHeartbeatTick(ActionEvent e) {
+        // If offline mode is active, immediately mark heartbeat as failed
+        if (NetworkSimulator.isOffline()) {
+            setHeartbeatAlive(false);
+            return;
+        }
+
+        try {
+            // Send lightweight GET to /charges to check connectivity
+            apiClient.queryCharges();
+            setHeartbeatAlive(true);
+            System.out.println("[Heartbeat] OK");
+        } catch (Exception ex) {
+            setHeartbeatAlive(false);
+            System.out.println("[Heartbeat] FAILED: " + ex.getMessage());
+        }
+    }
+
+    private void setHeartbeatAlive(boolean alive) {
+        this.heartbeatAlive = alive;
+        updateTitleBar();
+    }
+
+    private void updateTitleBar() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Mock Charger Client");
+
+        if (authenticated) {
+            sb.append(" - 已连接");
+        }
+        if (heartbeatAlive) {
+            sb.append(" [心跳正常]");
+        } else {
+            sb.append(" [心跳断开]");
+        }
+
+        // Use invokeLater to ensure EDT safety
+        final String title = sb.toString();
+        SwingUtilities.invokeLater(() -> setTitle(title));
+    }
+
+    // ===== Test Scenarios =====
+
+    /**
+     * 断网测试: Enable offline mode for 15 seconds, then auto-reconnect.
+     */
+    private void runIntermittentNetworkTest() {
+        SwingUtilities.invokeLater(() -> {
+            chargerPanel.setStatusText("【测试】断网测试开始 — 模拟断网15秒",
+                    Color.ORANGE);
+        });
+
+        NetworkSimulator.setOffline(true);
+        updateTitleBar();
+
+        Timer recoveryTimer = new Timer(15_000, evt -> {
+            NetworkSimulator.setOffline(false);
+            SwingUtilities.invokeLater(() -> {
+                chargerPanel.setStatusText("【测试】断网测试结束 — 网络已恢复",
+                        new Color(0x90, 0xEE, 0x90));
+            });
+            updateTitleBar();
+        });
+        recoveryTimer.setRepeats(false);
+        recoveryTimer.start();
+    }
+
+    /**
+     * 服务器重启测试: Simulate backend being down — heartbeat fails, then recovers after 20s.
+     */
+    private void runServerRestartTest() {
+        SwingUtilities.invokeLater(() -> {
+            chargerPanel.setStatusText("【测试】服务器重启测试 — 模拟服务器停机20秒",
+                    Color.ORANGE);
+        });
+
+        // Save current network state to restore later
+        boolean wasOffline = NetworkSimulator.isOffline();
+
+        // Force offline to fail heartbeats
+        NetworkSimulator.setOffline(true);
+        updateTitleBar();
+
+        Timer recoveryTimer = new Timer(20_000, evt -> {
+            // Restore original network state
+            NetworkSimulator.setOffline(wasOffline);
+            SwingUtilities.invokeLater(() -> {
+                chargerPanel.setStatusText("【测试】服务器重启测试结束 — 服务已恢复",
+                        new Color(0x90, 0xEE, 0x90));
+            });
+            updateTitleBar();
+        });
+        recoveryTimer.setRepeats(false);
+        recoveryTimer.start();
+    }
+
+    /**
+     * 充电桩离线测试: Stop heartbeat and show charger as offline.
+     */
+    private void runChargerOfflineTest() {
+        stopHeartbeat();
+        setHeartbeatAlive(false);
+
+        SwingUtilities.invokeLater(() -> {
+            chargerPanel.setStatusText("【测试】充电桩已离线 — 心跳已停止",
+                    Color.RED);
+        });
+
+        // After 20 seconds, ask if user wants to reconnect
+        Timer reconnectPrompt = new Timer(20_000, evt -> {
+            int choice = JOptionPane.showConfirmDialog(this,
+                    "充电桩离线测试已过去20秒。是否重新连接？",
+                    "充电桩离线测试", JOptionPane.YES_NO_OPTION);
+            if (choice == JOptionPane.YES_OPTION) {
+                startHeartbeat();
+                setHeartbeatAlive(true);
+                SwingUtilities.invokeLater(() -> {
+                    chargerPanel.setStatusText("【测试】充电桩已重新上线",
+                            new Color(0x90, 0xEE, 0x90));
+                });
+            } else {
+                SwingUtilities.invokeLater(() -> {
+                    chargerPanel.setStatusText("【测试】充电桩保持离线状态",
+                            Color.RED);
+                });
+            }
+        });
+        reconnectPrompt.setRepeats(false);
+        reconnectPrompt.start();
     }
 
     // ===== Startup =====
@@ -124,11 +318,12 @@ public class MockChargerClient extends JFrame implements ChargerUIPanel.ChargerU
             String token = apiClient.login(AppConfig.MOCK_USER_USERNAME, AppConfig.MOCK_USER_PASSWORD);
             this.authenticated = true;
             System.out.println("Login successful. Token: " + token.substring(0, Math.min(20, token.length())) + "...");
-            setTitle("Mock Charger Client - 已认证 [" + AppConfig.MOCK_USER_USERNAME + "]");
+            setTitle("Mock Charger Client - 已连接 [" + AppConfig.MOCK_USER_USERNAME + "]");
         } catch (Exception e) {
             System.out.println("Backend login failed (non-fatal): " + e.getMessage());
             System.out.println("Mock will run with local test data only; polling sync disabled.");
             this.authenticated = false;
+            updateTitleBar();
         }
     }
 

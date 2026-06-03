@@ -1,5 +1,6 @@
 package com.charging.mock.service;
 
+import com.charging.mock.config.NetworkSimulator;
 import com.charging.mock.model.ChargeRecord;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -62,6 +63,7 @@ public class ApiClient {
      * @throws IllegalStateException if the response body is empty
      */
     public String login(String username, String password) throws IOException, ApiException {
+        checkOffline();
         Map<String, String> body = new HashMap<>();
         body.put("phone", username);
         body.put("password", password);
@@ -108,6 +110,7 @@ public class ApiClient {
      * @throws ApiException if the backend returns a non-2xx response
      */
     public List<Map<String, Object>> getChargers() throws IOException, ApiException {
+        checkOffline();
         Request request = new Request.Builder()
                 .url(baseUrl + "/chargers")
                 .get()
@@ -128,6 +131,7 @@ public class ApiClient {
      * @throws ApiException if the backend returns a non-2xx response
      */
     public ChargeRecord startCharge(String chargerId) throws IOException, ApiException {
+        checkOffline();
         Map<String, String> body = new HashMap<>();
         body.put("chargerId", chargerId);
 
@@ -150,6 +154,7 @@ public class ApiClient {
      * @throws ApiException if the backend returns a non-2xx response
      */
     public ChargeRecord stopCharge(String recordId) throws IOException, ApiException {
+        checkOffline();
         Map<String, String> body = new HashMap<>();
         body.put("recordId", recordId);
 
@@ -172,6 +177,7 @@ public class ApiClient {
      * @throws ApiException if the backend returns a non-2xx response
      */
     public ChargeRecord getChargeStatus(String recordId) throws IOException, ApiException {
+        checkOffline();
         // GET /api/v1/charges?recordId=xxx  — filtered query
         HttpUrl url = HttpUrl.parse(baseUrl + "/charges")
                 .newBuilder()
@@ -201,6 +207,7 @@ public class ApiClient {
      * @throws ApiException if the backend returns a non-2xx response
      */
     public List<ChargeRecord> queryCharges() throws IOException, ApiException {
+        checkOffline();
         Request request = new Request.Builder()
                 .url(baseUrl + "/charges")
                 .get()
@@ -275,6 +282,18 @@ public class ApiClient {
                         new TypeReference<List<ChargeRecord>>() {
                         });
             }
+        }
+    }
+
+    // ===== Network offline check =====
+
+    /**
+     * Check if the network is simulated as offline and throw an IOException if so.
+     * This ensures no actual HTTP calls are made when in offline simulation mode.
+     */
+    private static void checkOffline() throws IOException {
+        if (NetworkSimulator.isOffline()) {
+            throw new IOException("[NetworkSimulator] Simulated network error: backend unreachable");
         }
     }
 
