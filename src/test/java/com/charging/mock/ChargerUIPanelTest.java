@@ -190,7 +190,8 @@ class ChargerUIPanelTest {
 
         assertFalse(panel.isPluggedIn());
         assertTrue(panel.chargerCombo.isEnabled());
-        assertEquals("（选择充电桩后自动生成）", getQrLabelText());
+        // QR is preserved after unplug — not cleared
+        assertNull(getQrIcon()); // no icon cleared, text set after selection
     }
 
     @Test
@@ -201,7 +202,9 @@ class ChargerUIPanelTest {
         JButton plugButton = findButton("插枪");
         JButton unplugButton = findButton("拔枪");
 
-        assertFalse(plugButton.isEnabled());
+        // plugButton should be enabled since charger is still selected
+        assertTrue(plugButton.isEnabled());
+        // unplugButton should be disabled after unplug
         assertFalse(unplugButton.isEnabled());
     }
 
@@ -262,6 +265,17 @@ class ChargerUIPanelTest {
             field.setAccessible(true);
             JLabel label = (JLabel) field.get(panel);
             return label.getText();
+        } catch (Exception e) {
+            throw new RuntimeException("Could not access qrCodeLabel", e);
+        }
+    }
+
+    private javax.swing.Icon getQrIcon() {
+        try {
+            Field field = ChargerUIPanel.class.getDeclaredField("qrCodeLabel");
+            field.setAccessible(true);
+            JLabel label = (JLabel) field.get(panel);
+            return label.getIcon();
         } catch (Exception e) {
             throw new RuntimeException("Could not access qrCodeLabel", e);
         }

@@ -48,7 +48,6 @@ public class MockChargerClient extends JFrame
         this.chargerPanel = new ChargerUIPanel(this, this);
 
         initFrame();
-        initMenuBar();
         initHeartbeatTimer();
     }
 
@@ -72,62 +71,6 @@ public class MockChargerClient extends JFrame
                 startHeartbeat();
             }
         });
-    }
-
-    private void initMenuBar() {
-        JMenuBar menuBar = new JMenuBar();
-
-        // ---- File menu ----
-        JMenu fileMenu = new JMenu("File");
-        JMenuItem exitItem = new JMenuItem("Exit");
-        exitItem.setAccelerator(KeyStroke.getKeyStroke("ctrl Q"));
-        exitItem.addActionListener(e -> System.exit(0));
-        fileMenu.add(exitItem);
-        menuBar.add(fileMenu);
-
-        // ---- Operation menu (操作) ----
-        JMenu simMenu = new JMenu("操作");
-
-        JMenuItem resetItem = new JMenuItem("重置充电桩状态");
-        resetItem.addActionListener(e -> {
-            loadChargers();
-            chargerPanel.setStatusText("充电桩状态已重置", new Color(0x90, 0xEE, 0x90));
-        });
-        simMenu.add(resetItem);
-
-        simMenu.addSeparator();
-
-        // Toggle network online/offline
-        JCheckBoxMenuItem networkToggleItem = new JCheckBoxMenuItem("模拟断网（离线模式）");
-        networkToggleItem.addActionListener(e -> {
-            boolean offline = NetworkSimulator.toggle();
-            networkToggleItem.setSelected(offline);
-            String statusText = offline ? "网络已断开（离线模式）" : "网络已恢复（在线模式）";
-            Color color = offline ? Color.RED : new Color(0x90, 0xEE, 0x90);
-            chargerPanel.setStatusText(statusText, color);
-        });
-        simMenu.add(networkToggleItem);
-
-        menuBar.add(simMenu);
-
-        // ---- Test Scenarios menu (测试场景) ----
-        JMenu testMenu = new JMenu("测试场景");
-
-        JMenuItem intermittentNetworkItem = new JMenuItem("断网测试");
-        intermittentNetworkItem.addActionListener(e -> runIntermittentNetworkTest());
-        testMenu.add(intermittentNetworkItem);
-
-        JMenuItem serverRestartItem = new JMenuItem("服务器重启测试");
-        serverRestartItem.addActionListener(e -> runServerRestartTest());
-        testMenu.add(serverRestartItem);
-
-        JMenuItem chargerOfflineItem = new JMenuItem("充电桩离线测试");
-        chargerOfflineItem.addActionListener(e -> runChargerOfflineTest());
-        testMenu.add(chargerOfflineItem);
-
-        menuBar.add(testMenu);
-
-        setJMenuBar(menuBar);
     }
 
     private void initHeartbeatTimer() {

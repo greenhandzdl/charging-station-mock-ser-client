@@ -32,6 +32,8 @@ public class ChargerUIPanel extends JPanel {
     private static final Color COLOR_IDLE = new Color(0x90, 0xEE, 0x90);    // light green
     private static final Color COLOR_PLUGGED = new Color(0xFF, 0xE4, 0xB5); // light yellow
     private static final Color COLOR_ERROR = Color.PINK;
+    private static final int TEST_BUTTON_MIN_WIDTH = 140;
+    private static final int TEST_BUTTON_HEIGHT = 38;
 
     // Charger selection
     final JComboBox<ChargerItem> chargerCombo;  // package-private for MockChargerClient access
@@ -136,19 +138,22 @@ public class ChargerUIPanel extends JPanel {
         centerPanel.add(plugPanel);
         centerPanel.add(Box.createVerticalStrut(15));
 
-        // Test scenario buttons — 3 in a row
-        JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        // Test scenario buttons — 3 in a row, with adequate size
+        JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
 
         intermittentNetworkBtn = new JButton("断网测试");
-        intermittentNetworkBtn.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        intermittentNetworkBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        intermittentNetworkBtn.setPreferredSize(new Dimension(TEST_BUTTON_MIN_WIDTH, TEST_BUTTON_HEIGHT));
         intermittentNetworkBtn.addActionListener(e -> testActions.onIntermittentNetwork());
 
         serverRestartBtn = new JButton("服务器重启");
-        serverRestartBtn.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        serverRestartBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        serverRestartBtn.setPreferredSize(new Dimension(TEST_BUTTON_MIN_WIDTH, TEST_BUTTON_HEIGHT));
         serverRestartBtn.addActionListener(e -> testActions.onServerRestart());
 
         chargerOfflineBtn = new JButton("桩离线");
-        chargerOfflineBtn.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        chargerOfflineBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        chargerOfflineBtn.setPreferredSize(new Dimension(TEST_BUTTON_MIN_WIDTH, TEST_BUTTON_HEIGHT));
         chargerOfflineBtn.addActionListener(e -> testActions.onChargerOffline());
 
         testPanel.add(intermittentNetworkBtn);
@@ -204,21 +209,19 @@ public class ChargerUIPanel extends JPanel {
     }
 
     /**
-     * Reset the panel to its initial idle state (after unplug).
+     * Reset the panel to its idle state (after unplug).
+     * QR code and charger selection are preserved — only plugged state is cleared.
      */
     public void resetToIdle() {
         this.pluggedIn = false;
-        this.currentChargerId = null;
 
-        qrCodeLabel.setIcon(null);
-        qrCodeLabel.setText("（选择充电桩后自动生成）");
-
+        // Preserve QR and charger selection — charger hasn't changed
         chargerCombo.setEnabled(true);
         refreshChargersBtn.setEnabled(true);
-        plugButton.setEnabled(false);
+        plugButton.setEnabled(currentChargerId != null);
         unplugButton.setEnabled(false);
 
-        setStatusText("就绪 - 请选择充电桩并插枪", COLOR_IDLE);
+        setStatusText("已拔枪 - 充电桩已释放", COLOR_IDLE);
     }
 
     // ===== Internal =====
