@@ -324,6 +324,42 @@ public class ApiClient {
         return records.get(0);
     }
 
+
+
+    // ===== Heartbeat =====
+
+    /**
+     * Send heartbeat to Spring backend for a specific charger.
+     * POST /api/v1/chargers/heartbeat
+     *
+     * @param chargerCode the charger code (e.g. "CY-A01")
+     * @throws IOException  if the HTTP request fails
+     * @throws ApiException if the backend returns a non-2xx response
+     */
+    public void sendHeartbeat(String chargerCode) throws IOException, ApiException {
+        checkOffline();
+        Map<String, String> body = new HashMap<>();
+        body.put("chargerCode", chargerCode);
+
+        String json = objectMapper.writeValueAsString(body);
+        Request request = new Request.Builder()
+                .url(baseUrl + "/api/v1/chargers/heartbeat")
+                .post(RequestBody.create(json, MediaType.parse("application/json")))
+                .addHeader("Authorization", "Bearer " + authToken)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            try (ResponseBody responseBody = response.body()) {
+                if (!response.isSuccessful()) {
+                    String responseStr = (responseBody != null) ? responseBody.string() : "";
+                    throw new ApiException("Heartbeat failed for charger: " + chargerCode,
+                            response.code(), responseStr);
+                }
+                System.out.println("[Heartbeat] Sent for charger: " + chargerCode);
+            }
+        }
+    }
+
     // ===== Query charges (list) =====
 
     /**

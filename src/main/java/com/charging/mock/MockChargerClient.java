@@ -135,14 +135,35 @@ public class MockChargerClient extends JFrame
         }
 
         try {
-            // Send lightweight GET to /charges to check connectivity
-            apiClient.queryCharges();
+            String code = getCurrentChargerCode();
+            if (code != null) {
+                apiClient.sendHeartbeat(code);
+            }
             setHeartbeatAlive(true);
-            System.out.println("[Heartbeat] OK");
         } catch (Exception ex) {
             setHeartbeatAlive(false);
             System.out.println("[Heartbeat] FAILED: " + ex.getMessage());
         }
+    }
+
+    /**
+     * Resolve the charger code from the currently selected/plugged charger.
+     * Falls back to the first available charger if none is selected.
+     */
+    private String getCurrentChargerCode() {
+        // If a charger is plugged in, use its code
+        if (selectedChargerId != null) {
+            Map<String, Object> charger = TestDataProvider.getChargerById(selectedChargerId);
+            if (charger != null) {
+                return (String) charger.get("chargerCode");
+            }
+        }
+        // Fallback: use first charger from test data
+        List<Map<String, Object>> chargers = TestDataProvider.getChargers();
+        if (!chargers.isEmpty()) {
+            return (String) chargers.get(0).get("chargerCode");
+        }
+        return null;
     }
 
     private void setHeartbeatAlive(boolean alive) {
