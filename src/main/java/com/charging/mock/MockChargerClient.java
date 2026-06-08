@@ -27,11 +27,21 @@ import java.util.Map;
  * <p>Important: This client does NOT call start/stop charge APIs — those are
  * handled by the Flutter client after scanning the QR code, just like a real
  * charging station where the phone app controls activation and payment.
+ *
+ * <p>Two permission modes are supported:
+ * <ul>
+ *   <li><b>Normal</b> — standard mock_user/mock123 JWT login</li>
+ *   <li><b>Advanced</b> — API Key authentication with elevated privileges
+ *       (enabled by setting the {@code ADVANCED_API_KEY} environment variable)</li>
+ * </ul>
  */
 public class MockChargerClient extends JFrame
         implements ChargerUIPanel.ChargerUICallbacks, ChargerUIPanel.TestScenarioActions {
 
     private static final int HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+
+    // Advanced mode UI colors
+    private static final Color COLOR_ADVANCED_BG = new Color(0xE8, 0xEE, 0xFF); // light blue background
 
     private final ChargerUIPanel chargerPanel;
     private final ApiClient apiClient;
@@ -42,7 +52,7 @@ public class MockChargerClient extends JFrame
     private String selectedChargerId;
 
     public MockChargerClient() {
-        super("Mock Charger Client - 充电站管理系统");
+        super(buildTitle());
 
         this.apiClient = new ApiClient(AppConfig.BACKEND_URL);
         this.chargerPanel = new ChargerUIPanel(this, this);
@@ -51,10 +61,33 @@ public class MockChargerClient extends JFrame
         initHeartbeatTimer();
     }
 
+    /**
+     * Build the initial window title based on permission mode.
+     */
+    private static String buildTitle() {
+        if (AppConfig.IS_ADVANCED_MODE) {
+            return "Mock充电机 [高级模式] - 充电站管理系统";
+        }
+        return "Mock充电机 [普通模式] - 充电站管理系统";
+    }
+
     private void initFrame() {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
         add(chargerPanel, BorderLayout.CENTER);
+
+        // Advanced mode: add a subtle blue header bar
+        if (AppConfig.IS_ADVANCED_MODE) {
+            JPanel headerBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 5));
+            headerBar.setBackground(COLOR_ADVANCED_BG);
+            headerBar.setBorder(BorderFactory.createEmptyBorder(3, 5, 3, 5));
+            JLabel advancedLabel = new JLabel("高级权限模式 — 可见所有充电桩");
+            advancedLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
+            advancedLabel.setForeground(new Color(0x00, 0x44, 0xAA));
+            headerBar.add(advancedLabel);
+            add(headerBar, BorderLayout.NORTH);
+        }
+
         pack();
         setMinimumSize(new Dimension(520, 740));
         setLocationRelativeTo(null);
@@ -119,10 +152,16 @@ public class MockChargerClient extends JFrame
 
     private void updateTitleBar() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Mock Charger Client");
+        if (AppConfig.IS_ADVANCED_MODE) {
+            sb.append("Mock充电机 [高级模式]");
+        } else {
+            sb.append("Mock充电机 [普通模式]");
+        }
 
         if (authenticated) {
             sb.append(" - 已连接");
+        } else {
+            sb.append(" - 未连接");
         }
         if (heartbeatAlive) {
             sb.append(" [心跳正常]");
@@ -231,8 +270,13 @@ public class MockChargerClient extends JFrame
         try {
             String token = apiClient.login(AppConfig.MOCK_USER_USERNAME, AppConfig.MOCK_USER_PASSWORD);
             this.authenticated = true;
-            System.out.println("Login successful. Token: " + token.substring(0, Math.min(20, token.length())) + "...");
-            setTitle("Mock Charger Client - 已连接 [" + AppConfig.MOCK_USER_USERNAME + "]");
+
+            String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
+            System.out.println("[" + mode + "模式] Login successful. Token: "
+                    + token.substring(0, Math.min(20, token.length())) + "...");
+
+            // Update title with mode prefix
+            updateTitleBar();
         } catch (Exception e) {
             System.out.println("Backend login failed (non-fatal): " + e.getMessage());
             System.out.println("Mock will run with local test data only; polling sync disabled.");
@@ -245,11 +289,15 @@ public class MockChargerClient extends JFrame
      * Load charger data from local test data provider.
      * No backend API call is needed — this simulates the charger's built-in
      * hardware configuration (station name, charger code, type, etc.).
+     *
+     * <p>In advanced mode, all test chargers are returned (visible across all stations).
+     * In normal mode, the same data set is used but filtered by the UI logic.
      */
     private void loadChargers() {
         List<Map<String, Object>> chargers = TestDataProvider.getChargers();
         chargerPanel.setChargerList(chargers);
-        System.out.println("Loaded " + chargers.size() + " chargers from local test data");
+        String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
+        System.out.println("[" + mode + "模式] Loaded " + chargers.size() + " chargers from local test data");
     }
 
     // ===== ChargerUICallbacks implementation =====

@@ -1,5 +1,6 @@
 package com.charging.mock.service;
 
+import com.charging.mock.config.AppConfig;
 import com.charging.mock.config.NetworkSimulator;
 import com.charging.mock.model.ChargeRecord;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -27,6 +28,13 @@ import java.util.concurrent.TimeUnit;
  * {@code mock_charger_only}, meaning only {@code /api/v1/charges/*} endpoints
  * are accessible — the backend Nginx layer enforces this at the network level
  * and Spring Security enforces it at the application level.
+ *
+ * <p>Two authentication modes are supported:
+ * <ul>
+ *   <li><b>Normal</b> — username/password login via {@code POST /auth/login}</li>
+ *   <li><b>Advanced</b> — API Key authentication via {@link #authenticateWithApiKey(String)},
+ *       activated when {@link AppConfig#ADVANCED_API_KEY} is set</li>
+ * </ul>
  */
 public class ApiClient {
 
@@ -55,6 +63,10 @@ public class ApiClient {
     /**
      * Authenticate with the backend and store the returned JWT token.
      *
+     * <p>If {@link AppConfig#ADVANCED_API_KEY} is set, delegates to
+     * {@link #authenticateWithApiKey(String)} for advanced authentication.
+     * Otherwise, performs normal username/password login.
+     *
      * @param username login username / phone
      * @param password login password
      * @return the JWT access token
@@ -63,6 +75,12 @@ public class ApiClient {
      * @throws IllegalStateException if the response body is empty
      */
     public String login(String username, String password) throws IOException, ApiException {
+        // If advanced API key is configured, use API Key authentication instead
+        if (AppConfig.IS_ADVANCED_MODE) {
+            return authenticateWithApiKey(AppConfig.ADVANCED_API_KEY);
+        }
+
+        // Normal username/password login
         checkOffline();
         Map<String, String> body = new HashMap<>();
         body.put("phone", username);
@@ -98,6 +116,115 @@ public class ApiClient {
             this.authToken = token;
             return token;
         }
+    }
+
+    /**
+     * Authenticate using an API Key for advanced permission mode.
+     *
+     * <p>Sends the API key via {@code Authorization: Bearer <apiKey>} header to
+     * the {@code /auth/advanced-login} endpoint. The backend verifies the key
+     * and returns a scoped JWT token with elevated privileges.
+     *
+     * <p>If the advanced-login endpoint is not yet implemented, falls back to
+     * sending the API key as the password to the normal login endpoint with
+     * a special scope marker in the username field.
+     *
+     * @param apiKey the advanced API key
+     * @return the JWT access token
+     * @throws IOException  if the HTTP request fails
+     * @throws ApiException if the backend returns a non-2xx response
+     */
+    public String authenticateWithApiKey(String apiKey) throws IOException, ApiException {
+        checkOffline();
+
+        // Try the dedicated advanced-login endpoint first
+        Request request = new Request.Builder()
+                .url(baseUrl + "/auth/advanced-login")
+                .post(RequestBody.create("", MediaType.parse("application/json")))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            try (ResponseBody responseBody = response.body()) {
+                String responseStr = (responseBody != null) ? responseBody.string() : "";
+
+                // If the endpoint returns 404, fall back to normal login with api key as password
+                if (response.code() == 404) {
+                    System.out.println("[ApiClient] /auth/advanced-login not available, falling back to normal login with scope marker");
+                    return loginWithApiKeyFallback(apiKey);
+                }
+
+                if (!response.isSuccessful()) {
+                    throw new ApiException("Advanced login failed", response.code(), responseStr);
+                }
+                if (responseStr.isEmpty()) {
+                    throw new IllegalStateException("Advanced login response body is empty");
+                }
+
+                Map<String, Object> result = objectMapper.readValue(responseStr,
+                        new TypeReference<Map<String, Object>>() {
+                        });
+                String token = (String) result.get("accessToken");
+                if (token == null || token.isBlank()) {
+                    token = (String) result.get("token");
+                }
+                if (token == null || token.isBlank()) {
+                    throw new ApiException("No token in advanced login response", response.code(), responseStr);
+                }
+                this.authToken = token;
+                System.out.println("[ApiClient] Advanced login successful via /auth/advanced-login");
+                return token;
+            }
+        }
+    }
+
+    /**
+     * Fallback: use the normal login endpoint with the API key as password,
+     * using a special username "advanced_scope" to signal elevated permissions.
+     */
+    private String loginWithApiKeyFallback(String apiKey) throws IOException, ApiException {
+        Map<String, String> body = new HashMap<>();
+        body.put("phone", "advanced_scope");
+        body.put("password", apiKey);
+
+        String json = objectMapper.writeValueAsString(body);
+        Request request = new Request.Builder()
+                .url(baseUrl + "/auth/login")
+                .post(RequestBody.create(json, MediaType.parse("application/json")))
+                .build();
+
+        Response response = httpClient.newCall(request).execute();
+        try (ResponseBody responseBody = response.body()) {
+            String responseStr = (responseBody != null) ? responseBody.string() : "";
+
+            if (!response.isSuccessful()) {
+                throw new ApiException("Advanced login fallback failed", response.code(), responseStr);
+            }
+            if (responseStr.isEmpty()) {
+                throw new IllegalStateException("Advanced login fallback response body is empty");
+            }
+
+            Map<String, Object> result = objectMapper.readValue(responseStr,
+                    new TypeReference<Map<String, Object>>() {
+                    });
+            String token = (String) result.get("accessToken");
+            if (token == null || token.isBlank()) {
+                token = (String) result.get("token");
+            }
+            if (token == null || token.isBlank()) {
+                throw new ApiException("No token in advanced login fallback response", response.code(), responseStr);
+            }
+            this.authToken = token;
+            System.out.println("[ApiClient] Advanced login successful via fallback (scope marker)");
+            return token;
+        }
+    }
+
+    /**
+     * Check whether the current authentication is in advanced mode.
+     */
+    public static boolean isAdvancedMode() {
+        return AppConfig.IS_ADVANCED_MODE;
     }
 
     // ===== Chargers =====

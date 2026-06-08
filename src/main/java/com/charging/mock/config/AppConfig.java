@@ -4,6 +4,13 @@ package com.charging.mock.config;
  * Application configuration for the Mock Charger Client.
  * Backend URL, mock credentials, and QR code settings are all configurable.
  *
+ * <p>Two permission modes are supported:
+ * <ul>
+ *   <li><b>Normal</b> (default) — mock_user / mock123 login with JWT authentication</li>
+ *   <li><b>Advanced</b> — enabled when {@code ADVANCED_API_KEY} environment variable is set;
+ *       uses API Key authentication for elevated privileges (see all chargers across stations)</li>
+ * </ul>
+ *
  * Defaults:
  * - BACKEND_URL: http://localhost:8080/api/v1
  * - MOCK_USER: mock_user / mock123
@@ -24,6 +31,20 @@ public final class AppConfig {
 
     public static final int QR_CODE_HEIGHT = getEnvIntOrDefault("QR_CODE_HEIGHT", 200);
 
+    // ===== Advanced permission mode =====
+
+    /**
+     * Advanced API key read from environment variable.
+     * When non-empty, the client switches to advanced mode with elevated privileges.
+     */
+    public static final String ADVANCED_API_KEY = getEnv("ADVANCED_API_KEY");
+
+    /**
+     * Whether the client is operating in advanced permission mode.
+     * Advanced mode is activated when {@link #ADVANCED_API_KEY} is set.
+     */
+    public static final boolean IS_ADVANCED_MODE = !ADVANCED_API_KEY.isEmpty();
+
     private static String getEnvOrDefault(String key, String defaultValue) {
         String value = System.getenv(key);
         return value != null && !value.isBlank() ? value : defaultValue;
@@ -39,5 +60,10 @@ public final class AppConfig {
             }
         }
         return defaultValue;
+    }
+
+    private static String getEnv(String key) {
+        String value = System.getenv(key);
+        return value != null ? value : "";
     }
 }
