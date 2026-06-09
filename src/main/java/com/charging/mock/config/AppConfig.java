@@ -23,9 +23,9 @@ public final class AppConfig {
 
     public static final String BACKEND_URL = getEnvOrDefault("BACKEND_URL", "http://localhost:8080/api/v1");
 
-    public static final String MOCK_USER_USERNAME = getEnvOrDefault("MOCK_USER", "mock_user");
+    public static final String MOCK_USER_USERNAME = getEnvOrDefault("MOCK_USER", "mock_charger");
 
-    public static final String MOCK_USER_PASSWORD = getEnvOrDefault("MOCK_PASSWORD", "mock123");
+    public static final String MOCK_USER_PASSWORD = getEnvOrDefault("MOCK_PASSWORD", "charger123");
 
     public static final int QR_CODE_WIDTH = getEnvIntOrDefault("QR_CODE_WIDTH", 200);
 
