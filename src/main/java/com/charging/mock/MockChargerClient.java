@@ -3,12 +3,17 @@ package com.charging.mock;
 import com.charging.mock.config.AppConfig;
 import com.charging.mock.config.NetworkSimulator;
 import com.charging.mock.config.TestDataProvider;
+import com.charging.mock.model.ChargeRecord;
 import com.charging.mock.service.ApiClient;
+import com.charging.mock.service.ChargeSimulator;
+import com.charging.mock.service.ChargerHttpServer;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 
@@ -22,11 +27,16 @@ import java.util.Map;
  *   <li>Simulate plug/unplug cable interaction</li>
  *   <li>Generate a QR code containing charger info for the Flutter app to scan</li>
  *   <li>Send periodic heartbeat to monitor backend connectivity</li>
+ *   <li>Receive push notifications from the backend via {@link ChargerHttpServer}</li>
+ *   <li>Simulate energy accumulation during charging via {@link ChargeSimulator}</li>
  * </ul>
  *
- * <p>Important: This client does NOT call start/stop charge APIs — those are
- * handled by the Flutter client after scanning the QR code, just like a real
- * charging station where the phone app controls activation and payment.
+ * <p>Important: This client does NOT call start/stop charge APIs directly for user
+ * interactions — those are handled by the Flutter client after scanning the QR code,
+ * just like a real charging station where the phone app controls activation and payment.
+ * However, when a start/stop notification arrives via ChargerHttpServer, this client
+ * will simulate the local energy display. On unplug while charging is active, it will
+ * call the stop-charge API to notify the backend.
  *
  * <p>Two permission modes are supported:
  * <ul>
@@ -45,11 +55,15 @@ public class MockChargerClient extends JFrame
 
     private final ChargerUIPanel chargerPanel;
     private final ApiClient apiClient;
+    private final ChargeSimulator chargeSimulator;
+    private ChargerHttpServer httpServer;
 
     private Timer heartbeatTimer;
+    private Timer uiUpdateTimer;
     private boolean authenticated;
     private boolean heartbeatAlive;
     private String selectedChargerId;
+    private String currentChargeRecordId;
     /** 从后端 API 获取的充电桩列表缓存 */
     private List<Map<String, Object>> fetchedChargers;
 
@@ -57,6 +71,7 @@ public class MockChargerClient extends JFrame
         super(buildTitle());
 
         this.apiClient = new ApiClient(AppConfig.BACKEND_URL);
+        this.chargeSimulator = new ChargeSimulator();
         this.chargerPanel = new ChargerUIPanel(this, this);
 
         initFrame();
@@ -104,6 +119,13 @@ public class MockChargerClient extends JFrame
                 doLogin();
                 loadChargers();
                 startHeartbeat();
+                startHttpServer();
+            }
+
+            @Override
+            public void windowClosing(WindowEvent e) {
+                stopHttpServer();
+                stopTimers();
             }
         });
     }
@@ -111,6 +133,97 @@ public class MockChargerClient extends JFrame
     private void initHeartbeatTimer() {
         heartbeatTimer = new Timer(HEARTBEAT_INTERVAL_MS, e -> onHeartbeatTick());
         heartbeatTimer.setInitialDelay(5_000); // first heartbeat after 5s
+    }
+
+    // ===== HTTP Server (push notifications) =====
+
+    /**
+     * Start the ChargerHttpServer to receive push notifications from the backend.
+     * Sets up callbacks to start/stop the local charge simulation.
+     */
+    private void startHttpServer() {
+        httpServer = new ChargerHttpServer();
+        httpServer.setOnStartCallback(notification -> {
+            SwingUtilities.invokeLater(() -> {
+                String type = notification.getChargerType() != null ? notification.getChargerType() : "FAST";
+                chargeSimulator.setChargerType(type);
+                chargeSimulator.setCurrentSimulationId(notification.getRecordId());
+                currentChargeRecordId = notification.getRecordId();
+                chargeSimulator.startSimulation();
+
+                // Update UI
+                chargerPanel.setStatusText("充电中 - 桩: " + notification.getChargerCode(),
+                        new Color(0x90, 0xEE, 0x90));
+                chargerPanel.setPluggedIn(true);
+
+                // Start UI update timer (every 1 second)
+                if (uiUpdateTimer != null) uiUpdateTimer.stop();
+                uiUpdateTimer = new Timer(1000, e -> updateChargingUI());
+                uiUpdateTimer.start();
+
+                System.out.println("[HttpServer] Charge started: " + notification);
+            });
+        });
+        httpServer.setOnStopCallback(notification -> {
+            SwingUtilities.invokeLater(() -> {
+                // Stop simulation
+                ChargeSimulator.SimulationResult result = chargeSimulator.stopSimulation();
+                currentChargeRecordId = null;
+
+                // Stop UI timer
+                if (uiUpdateTimer != null) uiUpdateTimer.stop();
+
+                // Update UI
+                chargerPanel.setStatusText("充电结束 - 电量: " + result.getEnergyKwh()
+                        + " kWh, 费用: " + result.getFee() + " 元", new Color(0xFF, 0xE4, 0xB5));
+                chargerPanel.showChargeResult(result.getEnergyKwh(), result.getFee());
+                chargerPanel.setPluggedIn(false);
+
+                // Reset simulator
+                chargeSimulator.reset();
+
+                System.out.println("[HttpServer] Charge stopped: " + notification + " result=" + result);
+            });
+        });
+        httpServer.start();
+        updateTitleBar();
+    }
+
+    private void stopHttpServer() {
+        if (httpServer != null) {
+            httpServer.stop();
+            httpServer = null;
+        }
+    }
+
+    private void stopTimers() {
+        if (uiUpdateTimer != null) {
+            uiUpdateTimer.stop();
+            uiUpdateTimer = null;
+        }
+        if (heartbeatTimer != null) {
+            heartbeatTimer.stop();
+        }
+    }
+
+    /**
+     * Update the charging info display on the UI panel.
+     * Called every second by the UI update timer.
+     */
+    private void updateChargingUI() {
+        if (!chargeSimulator.isCharging()) {
+            return;
+        }
+        chargeSimulator.tick();
+        double energy = chargeSimulator.getCurrentEnergy();
+        long elapsedSeconds = chargeSimulator.getElapsedSeconds();
+
+        // Calculate fee roughly to display (mirroring ChargeSimulator's internal logic)
+        BigDecimal fee = BigDecimal.valueOf(energy)
+                .multiply(new BigDecimal("1.5"))
+                .setScale(2, RoundingMode.HALF_UP);
+
+        chargerPanel.updateChargingUI(energy, fee, elapsedSeconds);
     }
 
     // ===== Heartbeat (simplified: just check connectivity) =====
@@ -208,6 +321,10 @@ public class MockChargerClient extends JFrame
             sb.append(" [心跳正常]");
         } else {
             sb.append(" [心跳断开]");
+        }
+
+        if (httpServer != null) {
+            sb.append(" [HTTP:8081]");
         }
 
         // Use invokeLater to ensure EDT safety
@@ -383,6 +500,18 @@ public class MockChargerClient extends JFrame
 
     @Override
     public boolean onUnplug() {
+        // If there's an active charge, stop it
+        if (currentChargeRecordId != null) {
+            try {
+                ChargeRecord result = apiClient.stopCharge(currentChargeRecordId);
+                System.out.println("[Unplug] Charge stopped: " + result);
+                currentChargeRecordId = null;
+                if (uiUpdateTimer != null) uiUpdateTimer.stop();
+                chargeSimulator.reset();
+            } catch (Exception e) {
+                System.out.println("[Unplug] Failed to stop charge: " + e.getMessage());
+            }
+        }
         selectedChargerId = null;
         chargerPanel.resetToIdle();
         return true;

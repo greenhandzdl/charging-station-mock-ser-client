@@ -7,6 +7,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +19,7 @@ import java.util.Map;
  * <ol>
  *   <li>Charger selector (JComboBox + refresh button) — unchanged</li>
  *   <li>Status label — simplified single line, shows current state</li>
+ *   <li>Charging info display (energy, fee, duration, progress bar) — shown during charging</li>
  *   <li>Plug/Unplug buttons — side by side, the ONLY operational buttons</li>
  *   <li>Test scenario buttons — 3 buttons in a row: "断网测试", "服务器重启", "桩离线"</li>
  *   <li>QR code — auto-generated when charger is selected (before plug), displayed in a larger area</li>
@@ -32,6 +34,7 @@ public class ChargerUIPanel extends JPanel {
     private static final Color COLOR_IDLE = new Color(0x90, 0xEE, 0x90);    // light green
     private static final Color COLOR_PLUGGED = new Color(0xFF, 0xE4, 0xB5); // light yellow
     private static final Color COLOR_ERROR = Color.PINK;
+    private static final Color COLOR_CHARGING = new Color(0x90, 0xEE, 0x90); // light green
     private static final int TEST_BUTTON_MIN_WIDTH = 140;
     private static final int TEST_BUTTON_HEIGHT = 38;
 
@@ -41,6 +44,13 @@ public class ChargerUIPanel extends JPanel {
 
     // Status
     private final JLabel statusLabel;
+
+    // Charging info display
+    private final JLabel energyLabel;
+    private final JLabel feeLabel;
+    private final JLabel durationLabel;
+    private final JProgressBar chargeProgress;
+    private final JPanel chargingInfoPanel;
 
     // Controls
     private final JButton plugButton;
@@ -67,7 +77,7 @@ public class ChargerUIPanel extends JPanel {
     public ChargerUIPanel(ChargerUICallbacks callbacks, TestScenarioActions testActions) {
         super(new BorderLayout(10, 10));
         setBorder(new EmptyBorder(15, 15, 15, 15));
-        setPreferredSize(new Dimension(480, 680));
+        setPreferredSize(new Dimension(480, 760));
 
         // ---- Top: Charger selector ----
         JPanel topPanel = new JPanel(new BorderLayout(5, 0));
@@ -91,7 +101,7 @@ public class ChargerUIPanel extends JPanel {
         topPanel.add(refreshChargersBtn, BorderLayout.EAST);
         add(topPanel, BorderLayout.NORTH);
 
-        // ---- Center: Status + Buttons ----
+        // ---- Center: Status + Charging Info + Buttons ----
         JPanel centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
         centerPanel.setBorder(new EmptyBorder(10, 0, 10, 0));
@@ -106,7 +116,45 @@ public class ChargerUIPanel extends JPanel {
                 new EmptyBorder(10, 10, 10, 10)));
         statusLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
         centerPanel.add(statusLabel);
-        centerPanel.add(Box.createVerticalStrut(15));
+        centerPanel.add(Box.createVerticalStrut(10));
+
+        // Charging info display
+        chargingInfoPanel = new JPanel();
+        chargingInfoPanel.setLayout(new BoxLayout(chargingInfoPanel, BoxLayout.Y_AXIS));
+        chargingInfoPanel.setBorder(new TitledBorder("充电信息"));
+        chargingInfoPanel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        chargingInfoPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+
+        energyLabel = new JLabel("当前电量: 0.0 kWh");
+        energyLabel.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        energyLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        feeLabel = new JLabel("当前费用: 0.0 元");
+        feeLabel.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        feeLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        durationLabel = new JLabel("充电时长: 0 分钟");
+        durationLabel.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        durationLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        chargeProgress = new JProgressBar(0, 100);
+        chargeProgress.setStringPainted(true);
+        chargeProgress.setIndeterminate(true);
+        chargeProgress.setAlignmentX(Component.CENTER_ALIGNMENT);
+        chargeProgress.setMaximumSize(new Dimension(400, 20));
+
+        chargingInfoPanel.add(energyLabel);
+        chargingInfoPanel.add(Box.createVerticalStrut(3));
+        chargingInfoPanel.add(feeLabel);
+        chargingInfoPanel.add(Box.createVerticalStrut(3));
+        chargingInfoPanel.add(durationLabel);
+        chargingInfoPanel.add(Box.createVerticalStrut(5));
+        chargingInfoPanel.add(chargeProgress);
+
+        // Initially hidden until charging starts
+        chargingInfoPanel.setVisible(false);
+        centerPanel.add(chargingInfoPanel);
+        centerPanel.add(Box.createVerticalStrut(10));
 
         // Plug/Unplug buttons — side by side, the ONLY operational buttons
         JPanel plugPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 0));
@@ -221,12 +269,56 @@ public class ChargerUIPanel extends JPanel {
         plugButton.setEnabled(currentChargerId != null);
         unplugButton.setEnabled(false);
 
+        // Hide charging info
+        chargingInfoPanel.setVisible(false);
+
         setStatusText("已拔枪 - 充电桩已释放", COLOR_IDLE);
+    }
+
+    /**
+     * Update the charging info display with current simulation data.
+     * Called every second during charging.
+     *
+     * @param energyKwh     current energy in kWh
+     * @param fee           current accumulated fee
+     * @param elapsedSeconds elapsed time in seconds
+     */
+    public void updateChargingUI(double energyKwh, BigDecimal fee, long elapsedSeconds) {
+        energyLabel.setText(String.format("当前电量: %.2f kWh", energyKwh));
+        feeLabel.setText("当前费用: " + fee + " 元");
+        durationLabel.setText("充电时长: " + (elapsedSeconds / 60) + " 分钟 " + (elapsedSeconds % 60) + " 秒");
+
+        // Update progress bar (capped at 100, where 100 = 50 kWh max)
+        int progress = Math.min(100, (int) (energyKwh / 50.0 * 100));
+        chargeProgress.setIndeterminate(false);
+        chargeProgress.setValue(progress);
+        chargeProgress.setString(progress + "%");
+    }
+
+    /**
+     * Show the final charging result after charging stops.
+     *
+     * @param energy final energy in kWh
+     * @param fee    final fee charged
+     */
+    public void showChargeResult(BigDecimal energy, BigDecimal fee) {
+        energyLabel.setText(String.format("总电量: %s kWh", energy));
+        feeLabel.setText("总费用: " + fee + " 元");
+
+        // Show full progress after charge completes
+        int progress = Math.min(100, (int) (energy.doubleValue() / 50.0 * 100));
+        chargeProgress.setIndeterminate(false);
+        chargeProgress.setValue(progress);
+        chargeProgress.setString("完成 (" + progress + "%)");
     }
 
     // ===== Internal =====
 
-    private void setPluggedIn(boolean plugged) {
+    /**
+     * Set the plugged-in state, enabling/disabling applicable buttons.
+     * Made public so {@link MockChargerClient} can update state on HTTP notification.
+     */
+    public void setPluggedIn(boolean plugged) {
         this.pluggedIn = plugged;
         plugButton.setEnabled(!plugged && currentChargerId != null);
         unplugButton.setEnabled(plugged);
