@@ -1,5 +1,7 @@
 package com.charging.mock.service;
 
+import com.charging.mock.model.ChargerStatus;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -15,6 +17,13 @@ import java.time.LocalDateTime;
  *
  * <p>Energy is capped between 1.0 and 50.0 kWh to simulate a reasonable
  * charging range, preventing overflow or unrealistic values.
+ *
+ * <p>Fee calculation matches backend pricing:
+ * <ul>
+ *   <li>Base rate: FAST = 1.5 元/kWh, SLOW = 0.8 元/kWh</li>
+ *   <li>Peak (08:00-22:00): 1.2x multiplier</li>
+ *   <li>Off-peak (22:00-08:00): 0.8x multiplier</li>
+ * </ul>
  */
 public class ChargeSimulator {
 
@@ -24,17 +33,36 @@ public class ChargeSimulator {
     private static final double MIN_ENERGY_KWH = 1.0;
     private static final double MAX_ENERGY_KWH = 50.0;
 
+    /** Base rates matching backend StandardPricing. */
+    private static final BigDecimal FAST_RATE = new BigDecimal("1.5");
+    private static final BigDecimal SLOW_RATE = new BigDecimal("0.8");
+
+    /** Peak hour multiplier matching backend PeakPricing. */
+    private static final BigDecimal PEAK_MULTIPLIER = new BigDecimal("1.2");
+    /** Off-peak hour multiplier. */
+    private static final BigDecimal OFF_PEAK_MULTIPLIER = new BigDecimal("0.8");
+
+    /** Peak hour start (08:00). */
+    private static final int PEAK_START_HOUR = 8;
+    /** Peak hour end (22:00). */
+    private static final int PEAK_END_HOUR = 22;
+
+    /** Default charger type when none specified. */
+    private static final String DEFAULT_CHARGER_TYPE = "FAST";
+
     private volatile LocalDateTime startTime;
     private volatile boolean charging;
 
     private double currentEnergyKwh;
     private String currentSimulationId;
+    private String chargerType;
 
     public ChargeSimulator() {
         this.charging = false;
         this.currentEnergyKwh = 0.0;
         this.startTime = null;
         this.currentSimulationId = null;
+        this.chargerType = DEFAULT_CHARGER_TYPE;
     }
 
     public String getCurrentSimulationId() {
@@ -43,6 +71,14 @@ public class ChargeSimulator {
 
     public void setCurrentSimulationId(String id) {
         this.currentSimulationId = id;
+    }
+
+    public String getChargerType() {
+        return chargerType;
+    }
+
+    public void setChargerType(String chargerType) {
+        this.chargerType = chargerType != null ? chargerType : DEFAULT_CHARGER_TYPE;
     }
 
     /**
@@ -70,7 +106,20 @@ public class ChargeSimulator {
     }
 
     /**
+     * Calculate the effective price per kWh based on charger type and current time.
+     * Matches backend StandardPricing + PeakPricing logic.
+     */
+    private BigDecimal calculateEffectiveRate() {
+        BigDecimal baseRate = "SLOW".equalsIgnoreCase(chargerType) ? SLOW_RATE : FAST_RATE;
+        int hour = LocalDateTime.now().getHour();
+        boolean isPeak = hour >= PEAK_START_HOUR && hour < PEAK_END_HOUR;
+        BigDecimal multiplier = isPeak ? PEAK_MULTIPLIER : OFF_PEAK_MULTIPLIER;
+        return baseRate.multiply(multiplier).setScale(4, RoundingMode.HALF_UP);
+    }
+
+    /**
      * Stop the simulation and return the result.
+     * Fee is calculated using backend-aligned pricing (type-based + time-of-day).
      *
      * @return a {@link SimulationResult} containing final energy, fee, and duration
      */
@@ -83,8 +132,9 @@ public class ChargeSimulator {
         BigDecimal finalEnergy = BigDecimal.valueOf(currentEnergyKwh)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // Fee calculation: FAST rate = 1.5 元/kWh (standard pricing from UML)
-        BigDecimal fee = finalEnergy.multiply(BigDecimal.valueOf(1.5))
+        // Fee calculation: energy * effectiveRate (type-based + peak/off-peak)
+        BigDecimal effectiveRate = calculateEffectiveRate();
+        BigDecimal fee = finalEnergy.multiply(effectiveRate)
                 .setScale(2, RoundingMode.HALF_UP);
 
         return new SimulationResult(finalEnergy, fee, duration);

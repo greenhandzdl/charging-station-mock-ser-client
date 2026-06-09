@@ -305,7 +305,7 @@ public class ApiClient {
      */
     public ChargeRecord getChargeStatus(String recordId) throws IOException, ApiException {
         checkOffline();
-        // GET /api/v1/charges?recordId=xxx  — filtered query
+        // GET /api/v1/charges?recordId=xxx  — filtered query (backend supports recordId param)
         HttpUrl url = HttpUrl.parse(baseUrl + "/charges")
                 .newBuilder()
                 .addQueryParameter("recordId", recordId)
@@ -317,11 +317,30 @@ public class ApiClient {
                 .addHeader("Authorization", "Bearer " + authToken)
                 .build();
 
-        List<ChargeRecord> records = executeListRecordRequest(request);
+        // Response is a list of enriched charge records (camelCase keys)
+        List<Map<String, Object>> records = executeListRequest(request);
         if (records.isEmpty()) {
             throw new ApiException("Charge record not found", 404, "recordId=" + recordId);
         }
-        return records.get(0);
+        Map<String, Object> first = records.get(0);
+        String json = objectMapper.writeValueAsString(first);
+        try {
+            return objectMapper.readValue(json, ChargeRecord.class);
+        } catch (Exception e) {
+            // Fallback: manually map fields
+            ChargeRecord cr = new ChargeRecord();
+            cr.setId(toStringValue(first.get("id")));
+            cr.setUserId(toStringValue(first.get("userId")));
+            cr.setChargerId(toStringValue(first.get("chargerId")));
+            cr.setStatus(toStringValue(first.get("status")));
+            cr.setDeductionStatus(toStringValue(first.get("deductionStatus")));
+            return cr;
+        }
+    }
+
+    /** Helper: convert an Object from a Map to String (handles UUID, etc.) */
+    private static String toStringValue(Object obj) {
+        return obj != null ? obj.toString() : null;
     }
 
 
@@ -343,7 +362,7 @@ public class ApiClient {
 
         String json = objectMapper.writeValueAsString(body);
         Request request = new Request.Builder()
-                .url(baseUrl + "/api/v1/chargers/heartbeat")
+                .url(baseUrl + "/chargers/heartbeat")
                 .post(RequestBody.create(json, MediaType.parse("application/json")))
                 .addHeader("Authorization", "Bearer " + authToken)
                 .build();

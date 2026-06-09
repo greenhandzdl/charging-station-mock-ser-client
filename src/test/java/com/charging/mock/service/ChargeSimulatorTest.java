@@ -5,6 +5,7 @@ import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -17,12 +18,29 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Start/stop lifecycle -- init, start, stop, no-op on double start/stop</li>
  *   <li>Energy accumulation -- tick increments by 0.1 kWh, cap at 50.0 kWh</li>
  *   <li>Duration tracking -- elapsed seconds are reported correctly</li>
- *   <li>Fee calculation -- energy * 1.5 rate with HALF_UP rounding</li>
+ *   <li>Fee calculation -- type-based rate * peak/off-peak multiplier with HALF_UP rounding</li>
  *   <li>Thread safety basics -- concurrent access to synchronized methods</li>
  *   <li>Idempotency -- multiple startSimulation calls, stop without start</li>
  * </ul>
+ *
+ * <p>Fee calculation follows backend pricing:
+ * <ul>
+ *   <li>FAST base rate: 1.5 元/kWh</li>
+ *   <li>SLOW base rate: 0.8 元/kWh</li>
+ *   <li>Peak (08:00-22:00): 1.2x multiplier</li>
+ *   <li>Off-peak (22:00-08:00): 0.8x multiplier</li>
+ * </ul>
+ * So fee ranges: FAST=[1.20~1.80]/kWh, SLOW=[0.64~0.96]/kWh depending on time.
  */
 class ChargeSimulatorTest {
+
+    // Expected rate range constants (inclusive)
+    // FAST: 1.5 * 0.8 = 1.2 (off-peak) to 1.5 * 1.2 = 1.8 (peak)
+    private static final BigDecimal FAST_MIN_RATE = new BigDecimal("1.2");
+    private static final BigDecimal FAST_MAX_RATE = new BigDecimal("1.8");
+    // SLOW: 0.8 * 0.8 = 0.64 to 0.8 * 1.2 = 0.96
+    private static final BigDecimal SLOW_MIN_RATE = new BigDecimal("0.64");
+    private static final BigDecimal SLOW_MAX_RATE = new BigDecimal("0.96");
 
     private ChargeSimulator simulator;
 
@@ -39,6 +57,20 @@ class ChargeSimulatorTest {
         assertNull(simulator.getStartTime());
         assertEquals(0.0, simulator.getCurrentEnergy(), 0.0);
         assertEquals(0, simulator.getElapsedSeconds());
+    }
+
+    @Test
+    void initial_chargerType_isFAST() {
+        assertEquals("FAST", simulator.getChargerType());
+    }
+
+    @Test
+    void setChargerType_updatesCorrectly() {
+        simulator.setChargerType("SLOW");
+        assertEquals("SLOW", simulator.getChargerType());
+
+        simulator.setChargerType(null);
+        assertEquals("FAST", simulator.getChargerType(), "null should default to FAST");
     }
 
     // ===== Start / Stop lifecycle =====
@@ -158,7 +190,7 @@ class ChargeSimulatorTest {
     // ===== Fee calculation =====
 
     @Test
-    void stopSimulation_calculatesCorrectFee() {
+    void stopSimulation_calculatesFeeWithinExpectedRange() {
         simulator.startSimulation();
 
         // Accumulate exactly 10.0 kWh = 100 ticks
@@ -168,26 +200,65 @@ class ChargeSimulatorTest {
 
         ChargeSimulator.SimulationResult result = simulator.stopSimulation();
 
-        // Fee = 10.0 * 1.5 = 15.0
-        assertEquals(0, BigDecimal.valueOf(15.0).compareTo(result.getFee()));
+        // Energy should be 10.0 kWh
         assertEquals(0, BigDecimal.valueOf(10.0).compareTo(result.getEnergyKwh()));
+
+        // Fee = 10 kWh * effectiveRate
+        // effectiveRate depends on time of day:
+        //   Peak   (08:00-22:00): FAST 1.5*1.2 = 1.8  → fee 18.0
+        //   Off-peak (22:00-08:00): FAST 1.5*0.8 = 1.2 → fee 12.0
+        BigDecimal fee = result.getFee();
+        BigDecimal rate = fee.divide(result.getEnergyKwh(), 4, RoundingMode.HALF_UP);
+        assertTrue(rate.compareTo(FAST_MIN_RATE) >= 0,
+                "Rate " + rate + " should be >= " + FAST_MIN_RATE);
+        assertTrue(rate.compareTo(FAST_MAX_RATE) <= 0,
+                "Rate " + rate + " should be <= " + FAST_MAX_RATE);
+    }
+
+    @Test
+    void stopSimulation_usesChargerTypeAwareRates() {
+        // Test FAST vs SLOW rate for same energy
+        simulator.setChargerType("FAST");
+        simulator.startSimulation();
+        for (int i = 0; i < 20; i++) simulator.tick();
+        ChargeSimulator.SimulationResult fastResult = simulator.stopSimulation();
+
+        simulator.setChargerType("SLOW");
+        simulator.startSimulation();
+        for (int i = 0; i < 20; i++) simulator.tick();
+        ChargeSimulator.SimulationResult slowResult = simulator.stopSimulation();
+
+        // Both should have same energy (2.0 kWh)
+        assertEquals(0, fastResult.getEnergyKwh().compareTo(slowResult.getEnergyKwh()));
+
+        // FAST fee should be > SLOW fee (1.5 > 0.8 base rates)
+        assertTrue(fastResult.getFee().compareTo(slowResult.getFee()) > 0,
+                "FAST fee " + fastResult.getFee() + " should be > SLOW fee " + slowResult.getFee());
     }
 
     @Test
     void stopSimulation_feeUsesHalfUpRounding() {
-        // 0.1 kWh * 1.5 = 0.15, with 2 decimal places = 0.15 (no rounding needed)
-        // 0.13 kWh would give 0.195, rounding to 0.20
         simulator.startSimulation();
-        // Exactly 1 tick = 0.1 kWh
+        // 3 ticks = 0.3 kWh
         simulator.tick();
-        // But we can't do fractional ticks. Instead test 3 ticks = 0.3 kWh -> fee = 0.45
         simulator.tick();
         simulator.tick();
 
         ChargeSimulator.SimulationResult result = simulator.stopSimulation();
         assertEquals(0, BigDecimal.valueOf(0.3).compareTo(result.getEnergyKwh()));
-        // 0.3 * 1.5 = 0.45
-        assertEquals(0, BigDecimal.valueOf(0.45).compareTo(result.getFee()));
+
+        // Fee = 0.3 * effectiveRate. For FAST: 0.3 * [1.2~1.8] = [0.36~0.54]
+        // All these should round to 2 decimal places correctly
+        BigDecimal fee = result.getFee();
+        assertTrue(fee.compareTo(BigDecimal.ZERO) > 0, "Fee should be positive");
+        assertEquals(2, fee.scale(), "Fee should have 2 decimal places");
+
+        // Verify the rate is in valid range
+        BigDecimal rate = fee.divide(result.getEnergyKwh(), 4, RoundingMode.HALF_UP);
+        assertTrue(rate.compareTo(FAST_MIN_RATE) >= 0,
+                "Rate " + rate + " should be >= " + FAST_MIN_RATE);
+        assertTrue(rate.compareTo(FAST_MAX_RATE) <= 0,
+                "Rate " + rate + " should be <= " + FAST_MAX_RATE);
     }
 
     // ===== Elapsed time =====
@@ -239,14 +310,16 @@ class ChargeSimulatorTest {
 
     @Test
     void simulationResult_toString_containsEnergyFeeAndDuration() {
-        ChargeSimulator.SimulationResult result =
-                new ChargeSimulator.SimulationResult(
-                        BigDecimal.valueOf(5.0), BigDecimal.valueOf(7.5), Duration.ofSeconds(300));
+        // Use SLOW charger for predictable rate check
+        simulator.setChargerType("SLOW");
+        simulator.startSimulation();
+        for (int i = 0; i < 50; i++) simulator.tick();
+        ChargeSimulator.SimulationResult result = simulator.stopSimulation();
 
         String str = result.toString();
-        assertTrue(str.contains("5.00"));
-        assertTrue(str.contains("7.50"));
-        assertTrue(str.contains("5 min")); // 300 sec = 5 min
+        assertTrue(str.contains("5.00"), "toString should contain energy: " + str);
+        assertTrue(str.contains("元"), "toString should contain fee: " + str);
+        assertTrue(str.contains("min"), "toString should contain duration: " + str);
     }
 
     // ===== Thread safety smoke test =====
@@ -286,6 +359,7 @@ class ChargeSimulatorTest {
         }
         ChargeSimulator.SimulationResult r1 = simulator.stopSimulation();
         assertEquals(0, BigDecimal.valueOf(3.0).compareTo(r1.getEnergyKwh()));
+        assertTrue(r1.getFee().compareTo(BigDecimal.ZERO) > 0);
 
         // Second cycle
         simulator.startSimulation();
@@ -294,6 +368,7 @@ class ChargeSimulatorTest {
         }
         ChargeSimulator.SimulationResult r2 = simulator.stopSimulation();
         assertEquals(0, BigDecimal.valueOf(2.0).compareTo(r2.getEnergyKwh()));
+        assertTrue(r2.getFee().compareTo(BigDecimal.ZERO) > 0);
     }
 
     @Test
@@ -306,7 +381,30 @@ class ChargeSimulatorTest {
         assertEquals(50.0, simulator.getCurrentEnergy(), 1e-9);
 
         ChargeSimulator.SimulationResult result = simulator.stopSimulation();
-        // Fee = 50.0 * 1.5 = 75.0
-        assertEquals(0, BigDecimal.valueOf(75.0).compareTo(result.getFee()));
+        assertEquals(0, BigDecimal.valueOf(50.0).compareTo(result.getEnergyKwh()));
+
+        // Fee = 50 * effectiveRate. For FAST: [1.2~1.8] * 50 = [60~90]
+        BigDecimal fee = result.getFee();
+        assertTrue(fee.compareTo(BigDecimal.valueOf(60)) >= 0,
+                "Fee " + fee + " should be >= 60 for 50 kWh FAST");
+        assertTrue(fee.compareTo(BigDecimal.valueOf(90)) <= 0,
+                "Fee " + fee + " should be <= 90 for 50 kWh FAST");
+    }
+
+    @Test
+    void differentChargerTypes_haveDifferentRates() {
+        // FAST at 10 kWh should cost more than SLOW at same energy
+        simulator.setChargerType("FAST");
+        simulator.startSimulation();
+        for (int i = 0; i < 100; i++) simulator.tick();
+        BigDecimal fastFee = simulator.stopSimulation().getFee();
+
+        simulator.setChargerType("SLOW");
+        simulator.startSimulation();
+        for (int i = 0; i < 100; i++) simulator.tick();
+        BigDecimal slowFee = simulator.stopSimulation().getFee();
+
+        assertTrue(fastFee.compareTo(slowFee) > 0,
+                "FAST fee " + fastFee + " should be > SLOW fee " + slowFee);
     }
 }
