@@ -327,36 +327,35 @@ public class MockChargerClient extends JFrame
     }
 
     /**
-     * Load charger data — first try backend API, fall back to local test data.
+     * 加载充电桩列表。
      * <p>
-     * 真实充电桩程序启动后第一步是用当前身份从后端获取所有充电桩信息，
-     * 然后展示在界面上让用户选择要操作的充电桩。
+     * 普通模式：仅使用本地测试数据（模拟真实充电桩只有自身信息）。
+     * 高级模式：从后端 API 获取全量充电桩列表（测试环境允许的权限）。
      */
     private void loadChargers() {
-        List<Map<String, Object>> chargers = null;
+        List<Map<String, Object>> chargers;
+        String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
 
-        // 普通/高级模式都优先从后端获取充电桩列表
-        if (authenticated) {
+        if (AppConfig.IS_ADVANCED_MODE && authenticated) {
+            // 高级模式：测试环境，从后端获取所有充电桩信息
             try {
                 chargers = apiClient.getChargers();
-                String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
+                this.fetchedChargers = chargers;
                 System.out.println("[" + mode + "模式] Loaded " + chargers.size()
-                        + " chargers from backend API");
+                        + " chargers from backend API (full access)");
+                chargerPanel.setChargerList(chargers);
+                return;
             } catch (Exception e) {
-                System.out.println("Backend charger list unavailable, falling back to local data: "
-                        + e.getMessage());
+                System.out.println("[" + mode + "模式] Backend API unavailable: " + e.getMessage());
+                // fall through to local data
             }
         }
 
-        // 后端不可用时降级到本地数据
-        if (chargers == null || chargers.isEmpty()) {
-            chargers = TestDataProvider.getChargers();
-            this.fetchedChargers = chargers;
-            String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
-            System.out.println("[" + mode + "模式] Loaded " + chargers.size()
-                    + " chargers from local test data (fallback)");
-        }
-
+        // 普通模式或 API 不可用时：使用本地测试数据
+        chargers = TestDataProvider.getChargers();
+        this.fetchedChargers = chargers;
+        System.out.println("[" + mode + "模式] Loaded " + chargers.size()
+                + " chargers from local test data");
         chargerPanel.setChargerList(chargers);
     }
 
