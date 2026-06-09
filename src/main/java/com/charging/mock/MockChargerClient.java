@@ -50,6 +50,8 @@ public class MockChargerClient extends JFrame
     private boolean authenticated;
     private boolean heartbeatAlive;
     private String selectedChargerId;
+    /** 从后端 API 获取的充电桩列表缓存 */
+    private List<Map<String, Object>> fetchedChargers;
 
     public MockChargerClient() {
         super(buildTitle());
@@ -147,21 +149,39 @@ public class MockChargerClient extends JFrame
     }
 
     /**
+     * 从充电桩列表缓存中按 id 查找充电桩。
+     */
+    private Map<String, Object> findChargerById(String chargerId) {
+        if (fetchedChargers == null || chargerId == null) return null;
+        return fetchedChargers.stream()
+                .filter(c -> chargerId.equals(c.get("id")) || chargerId.equals(c.get("chargerId")))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
      * Resolve the charger code from the currently selected/plugged charger.
      * Falls back to the first available charger if none is selected.
      */
     private String getCurrentChargerCode() {
         // If a charger is plugged in, use its code
         if (selectedChargerId != null) {
-            Map<String, Object> charger = TestDataProvider.getChargerById(selectedChargerId);
+            Map<String, Object> charger = findChargerById(selectedChargerId);
             if (charger != null) {
-                return (String) charger.get("chargerCode");
+                Object code = charger.get("chargerCode");
+                if (code != null) return code.toString();
+                // Also try snake_case for API responses
+                code = charger.get("charger_code");
+                if (code != null) return code.toString();
             }
         }
-        // Fallback: use first charger from test data
-        List<Map<String, Object>> chargers = TestDataProvider.getChargers();
-        if (!chargers.isEmpty()) {
-            return (String) chargers.get(0).get("chargerCode");
+        // Fallback: use first charger from fetched list or test data
+        if (fetchedChargers != null && !fetchedChargers.isEmpty()) {
+            Map<String, Object> first = fetchedChargers.get(0);
+            Object code = first.get("chargerCode");
+            if (code != null) return code.toString();
+            code = first.get("charger_code");
+            if (code != null) return code.toString();
         }
         return null;
     }
@@ -307,18 +327,37 @@ public class MockChargerClient extends JFrame
     }
 
     /**
-     * Load charger data from local test data provider.
-     * No backend API call is needed — this simulates the charger's built-in
-     * hardware configuration (station name, charger code, type, etc.).
-     *
-     * <p>In advanced mode, all test chargers are returned (visible across all stations).
-     * In normal mode, the same data set is used but filtered by the UI logic.
+     * Load charger data — first try backend API, fall back to local test data.
+     * <p>
+     * 真实充电桩程序启动后第一步是用当前身份从后端获取所有充电桩信息，
+     * 然后展示在界面上让用户选择要操作的充电桩。
      */
     private void loadChargers() {
-        List<Map<String, Object>> chargers = TestDataProvider.getChargers();
+        List<Map<String, Object>> chargers = null;
+
+        // 普通/高级模式都优先从后端获取充电桩列表
+        if (authenticated) {
+            try {
+                chargers = apiClient.getChargers();
+                String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
+                System.out.println("[" + mode + "模式] Loaded " + chargers.size()
+                        + " chargers from backend API");
+            } catch (Exception e) {
+                System.out.println("Backend charger list unavailable, falling back to local data: "
+                        + e.getMessage());
+            }
+        }
+
+        // 后端不可用时降级到本地数据
+        if (chargers == null || chargers.isEmpty()) {
+            chargers = TestDataProvider.getChargers();
+            this.fetchedChargers = chargers;
+            String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
+            System.out.println("[" + mode + "模式] Loaded " + chargers.size()
+                    + " chargers from local test data (fallback)");
+        }
+
         chargerPanel.setChargerList(chargers);
-        String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
-        System.out.println("[" + mode + "模式] Loaded " + chargers.size() + " chargers from local test data");
     }
 
     // ===== ChargerUICallbacks implementation =====
