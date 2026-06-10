@@ -361,11 +361,16 @@ public class ApiClient {
         body.put("chargerCode", chargerCode);
 
         String json = objectMapper.writeValueAsString(body);
-        Request request = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
                 .url(baseUrl + "/chargers/heartbeat")
-                .post(RequestBody.create(json, MediaType.parse("application/json")))
-                .addHeader("Authorization", "Bearer " + authToken)
-                .build();
+                .post(RequestBody.create(json, MediaType.parse("application/json")));
+
+        // Heartbeat is permitAll; attach auth token only if available (no-op auth fallback)
+        if (authToken != null && !authToken.isBlank()) {
+            builder.addHeader("Authorization", "Bearer " + authToken);
+        }
+
+        Request request = builder.build();
 
         try (Response response = httpClient.newCall(request).execute()) {
             try (ResponseBody responseBody = response.body()) {
