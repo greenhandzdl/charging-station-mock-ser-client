@@ -145,23 +145,19 @@ public class MockChargerClient extends JFrame
         httpServer = new ChargerHttpServer();
         httpServer.setOnStartCallback(notification -> {
             SwingUtilities.invokeLater(() -> {
-                String type = notification.getChargerType() != null ? notification.getChargerType() : "FAST";
-                chargeSimulator.setChargerType(type);
-                chargeSimulator.setCurrentSimulationId(notification.getRecordId());
+                // Store the record ID and charger type; the actual simulation
+                // will start when the user presses the plug button (onPlugIn).
                 currentChargeRecordId = notification.getRecordId();
-                chargeSimulator.startSimulation();
+                chargeSimulator.setChargerType(
+                        notification.getChargerType() != null ? notification.getChargerType() : "FAST");
+                chargeSimulator.setCurrentSimulationId(notification.getRecordId());
 
-                // Update UI
-                chargerPanel.setStatusText("充电中 - 桩: " + notification.getChargerCode(),
-                        new Color(0x90, 0xEE, 0x90));
-                chargerPanel.setPluggedIn(true);
+                // Update UI to prompt user to plug in the cable
+                chargerPanel.setStatusText("请插枪 — 桩: " + notification.getChargerCode(),
+                        new Color(0xFF, 0xE4, 0xB5));
+                chargerPanel.setPluggedIn(false);
 
-                // Start UI update timer (every 1 second)
-                if (uiUpdateTimer != null) uiUpdateTimer.stop();
-                uiUpdateTimer = new Timer(1000, e -> updateChargingUI());
-                uiUpdateTimer.start();
-
-                System.out.println("[HttpServer] Charge started: " + notification);
+                System.out.println("[HttpServer] Start notification received, waiting for plug-in: " + notification);
             });
         });
         httpServer.setOnStopCallback(notification -> {
@@ -493,6 +489,28 @@ public class MockChargerClient extends JFrame
         selectedChargerId = chargerId;
         // Regenerate QR for the plugged charger
         chargerPanel.generateQrForCharger(chargerId);
+
+        // If there is a pending charge record, notify the backend that the charger has been plugged in
+        if (currentChargeRecordId != null) {
+            boolean plugInSuccess = apiClient.plugIn(currentChargeRecordId);
+            if (plugInSuccess) {
+                // Start simulation now that the charger is plugged in
+                chargeSimulator.startSimulation();
+                chargerPanel.setStatusText("已插枪，充电中...",
+                        new Color(0x90, 0xEE, 0x90));
+                chargerPanel.setPluggedIn(true);
+                // Start UI update timer (every 1 second)
+                if (uiUpdateTimer != null) uiUpdateTimer.stop();
+                uiUpdateTimer = new Timer(1000, e -> updateChargingUI());
+                uiUpdateTimer.start();
+                System.out.println("[PlugIn] Charge started for record: " + currentChargeRecordId);
+                return true;
+            } else {
+                chargerPanel.setStatusText("插枪失败 — 后端未确认", Color.PINK);
+                return false;
+            }
+        }
+
         chargerPanel.setStatusText("已插枪 — 请使用Flutter App扫描二维码启动充电",
                 new Color(0xFF, 0xE4, 0xB5));
         return true;

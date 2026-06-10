@@ -345,6 +345,33 @@ public class ApiClient {
 
 
 
+    // ===== Plug-In =====
+
+    /**
+     * Notify backend that the charger has been plugged in.
+     * This sets the start_time on the charge record so billing begins.
+     *
+     * @param recordId the UUID of the charge record to mark as plugged in
+     * @return true if the backend accepted the plug-in notification
+     */
+    public boolean plugIn(String recordId) {
+        try {
+            String json = objectMapper.writeValueAsString(Map.of());
+            Request request = new Request.Builder()
+                    .url(baseUrl + "/charges/" + recordId + "/plug-in")
+                    .post(RequestBody.create(json, MediaType.parse("application/json")))
+                    .addHeader("Authorization", "Bearer " + authToken)
+                    .build();
+            try (Response response = httpClient.newCall(request).execute()) {
+                return response.isSuccessful();
+            }
+        } catch (Exception e) {
+            System.out.println("[ApiClient] plugIn failed for record " + recordId + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+
     // ===== Heartbeat =====
 
     /**
