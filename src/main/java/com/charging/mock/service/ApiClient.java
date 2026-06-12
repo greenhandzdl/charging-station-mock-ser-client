@@ -161,7 +161,7 @@ public class ApiClient {
                     throw new ApiException("No token in charger login response", response.code(), responseStr);
                 }
                 this.authToken = token;
-                System.out.println("[ApiClient] Charger login successful: " + phone);
+                System.out.println("[ApiClient] Charger login successful: " + loginId);
                 return token;
             }
         }

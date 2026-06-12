@@ -8,8 +8,11 @@ import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ChargerUIPanel is a Swing panel that simulates the display and controls
@@ -38,9 +41,12 @@ public class ChargerUIPanel extends JPanel {
     private static final int TEST_BUTTON_MIN_WIDTH = 140;
     private static final int TEST_BUTTON_HEIGHT = 38;
 
-    // Charger selection
+    // Charger selection — combo + checkbox list
     final JComboBox<ChargerItem> chargerCombo;  // package-private for MockChargerClient access
     private final JButton refreshChargersBtn;
+    private final JList<ChargerItem> chargerCheckList;
+    private final DefaultListModel<ChargerItem> checkListModel;
+    private final JButton applySelectedBtn;
 
     // Status
     private final JLabel statusLabel;
@@ -67,6 +73,7 @@ public class ChargerUIPanel extends JPanel {
     // State tracking
     private boolean pluggedIn;
     private String currentChargerId;
+    private final Set<String> selectedChargerIds = new HashSet<>();
 
     /**
      * Construct the panel with a reference to the parent for event callbacks.
@@ -184,7 +191,25 @@ public class ChargerUIPanel extends JPanel {
         plugPanel.add(plugButton);
         plugPanel.add(unplugButton);
         centerPanel.add(plugPanel);
-        centerPanel.add(Box.createVerticalStrut(15));
+        centerPanel.add(Box.createVerticalStrut(10));
+
+        // ---- Multi-charger selection panel ----
+        JPanel multiChargerPanel = new JPanel(new BorderLayout(5, 2));
+        multiChargerPanel.setBorder(new TitledBorder("选择要模拟的充电桩（勾选+应用）"));
+        checkListModel = new DefaultListModel<>();
+        chargerCheckList = new JList<>(checkListModel);
+        chargerCheckList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        chargerCheckList.setVisibleRowCount(3);
+        JScrollPane checkScroll = new JScrollPane(chargerCheckList);
+        checkScroll.setPreferredSize(new Dimension(450, 80));
+        applySelectedBtn = new JButton("应用");
+        applySelectedBtn.addActionListener(e -> callbacks.onApplySelected(getSelectedChargerIds()));
+        JPanel applyPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        applyPanel.add(applySelectedBtn);
+        multiChargerPanel.add(checkScroll, BorderLayout.CENTER);
+        multiChargerPanel.add(applyPanel, BorderLayout.SOUTH);
+        centerPanel.add(multiChargerPanel);
+        centerPanel.add(Box.createVerticalStrut(10));
 
         // Test scenario buttons — 3 in a row, with adequate size
         JPanel testPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
@@ -234,18 +259,40 @@ public class ChargerUIPanel extends JPanel {
      */
     public void setChargerList(List<Map<String, Object>> chargers) {
         chargerCombo.removeAllItems();
+        checkListModel.clear();
         // Add a placeholder
         chargerCombo.addItem(new ChargerItem(null, "-- 请选择充电桩 --", ""));
         for (Map<String, Object> c : chargers) {
             String id = String.valueOf(c.get("id"));
             String code = (String) c.getOrDefault("chargerCode", id);
             String status = (String) c.getOrDefault("status", "UNKNOWN");
-            chargerCombo.addItem(new ChargerItem(id, code, status));
+            ChargerItem item = new ChargerItem(id, code, status);
+            chargerCombo.addItem(item);
+            checkListModel.addElement(item);
         }
         if (!chargers.isEmpty()) {
             chargerCombo.setSelectedIndex(1);
             onChargerSelected();
         }
+    }
+
+    /**
+     * 获取勾选中的充电桩 ID 列表。
+     */
+    public List<String> getSelectedChargerIds() {
+        List<String> ids = new ArrayList<>();
+        int[] selected = chargerCheckList.getSelectedIndices();
+        for (int i : selected) {
+            ChargerItem item = checkListModel.getElementAt(i);
+            if (item != null && item.id != null) {
+                ids.add(item.id);
+            }
+        }
+        return ids;
+    }
+
+    public Set<String> getActiveChargerIds() {
+        return selectedChargerIds;
     }
 
     /**
@@ -411,6 +458,7 @@ public class ChargerUIPanel extends JPanel {
         void onRefreshChargers();
         boolean onPlugIn(String chargerId);
         boolean onUnplug();
+        void onApplySelected(List<String> selectedChargerIds);
     }
 
     /**

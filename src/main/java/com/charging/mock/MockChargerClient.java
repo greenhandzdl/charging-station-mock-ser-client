@@ -246,6 +246,16 @@ public class MockChargerClient extends JFrame
         // If offline mode is active, immediately mark heartbeat as failed
         if (NetworkSimulator.isOffline()) {
             setHeartbeatAlive(false);
+            // 检测到断线 → 自动停止所有模拟充电
+            if (chargeSimulator.isCharging()) {
+                ChargeSimulator.SimulationResult result = chargeSimulator.stopSimulation();
+                chargerPanel.setPluggedIn(false);
+                selectedChargerId = null;
+                chargerPanel.setStatusText("⚠ 离线中 — 充电已停止: " + result, new java.awt.Color(0xFF, 0xCC, 0xCC));
+                System.out.println("[离线检测] 充电已停止: " + result);
+            } else {
+                chargerPanel.setStatusText("⚠ 离线中", new java.awt.Color(0xFF, 0xCC, 0xCC));
+            }
             return;
         }
 
@@ -563,6 +573,19 @@ public class MockChargerClient extends JFrame
         currentSessionId = null;
         chargerPanel.resetToIdle();
         return true;
+    }
+
+    // ===== ChargerUICallbacks: onApplySelected =====
+
+    @Override
+    public void onApplySelected(List<String> selectedChargerIds) {
+        if (selectedChargerIds.isEmpty()) {
+            JOptionPane.showMessageDialog(chargerPanel, "请在列表中勾选要模拟的充电桩",
+                    "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        System.out.println("[应用] 已选择 " + selectedChargerIds.size() + " 个充电桩用于模拟: " + selectedChargerIds);
+        chargerPanel.setStatusText("已应用 " + selectedChargerIds.size() + " 个充电桩模拟", new Color(0xCC, 0xFF, 0xCC));
     }
 
     // ===== TestScenarioActions implementation =====

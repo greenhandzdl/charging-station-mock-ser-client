@@ -316,6 +316,7 @@ class ChargerUIPanelTest {
         boolean refreshChargersCalled;
         boolean plugInCalled;
         boolean unplugCalled;
+        boolean applySelectedCalled;
         String lastChargerId;
         boolean plugInResult = true;
         boolean unplugResult = true;
@@ -336,6 +337,11 @@ class ChargerUIPanelTest {
         public boolean onUnplug() {
             unplugCalled = true;
             return unplugResult;
+        }
+
+        @Override
+        public void onApplySelected(List<String> selectedChargerIds) {
+            applySelectedCalled = true;
         }
     }
 
