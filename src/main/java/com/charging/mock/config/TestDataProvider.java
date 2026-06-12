@@ -18,13 +18,18 @@ public final class TestDataProvider {
     private static final List<Map<String, Object>> TEST_CHARGERS = new ArrayList<>();
 
     static {
-        addCharger("11111111-1111-1111-1111-111111111001", "CY-A01", "fast", "idle", "朝阳站A区1号");
-        addCharger("11111111-1111-1111-1111-111111111002", "CY-A02", "slow", "idle", "朝阳站A区2号");
-        addCharger("11111111-1111-1111-1111-111111111003", "CY-B01", "fast", "idle", "朝阳站B区1号");
-        addCharger("22222222-2222-2222-2222-222222222001", "HD-A01", "fast", "idle", "海淀站A区1号");
-        addCharger("22222222-2222-2222-2222-222222222002", "HD-A02", "slow", "idle", "海淀站A区2号");
-        addCharger("33333333-3333-3333-3333-333333333001", "XC-A01", "fast", "idle", "西城站A区1号");
-        addCharger("33333333-3333-3333-3333-333333333002", "XC-B01", "fast", "idle", "西城站B区1号");
+        // ID must match seed.sql UUIDs for consistent cross-system identification
+        // chargers table seed data uses c0000000-... prefix:
+        //   朝阳站(b000...001): CY-A01(id c000...001), CY-A02(c000...002), CY-B01(c000...003)
+        //   海淀站(b000...002): HD-A01(c000...004), HD-B01(c000...005)  — note: HD-B01 not HD-A02
+        //   浦东站(b000...003): PD-A01(c000...006), PD-B01(c000...007)
+        addCharger("c0000000-0000-4000-8000-000000000001", "CY-A01", "FAST", "IDLE", "朝阳区充电站");
+        addCharger("c0000000-0000-4000-8000-000000000002", "CY-A02", "FAST", "IDLE", "朝阳区充电站");
+        addCharger("c0000000-0000-4000-8000-000000000003", "CY-B01", "SLOW", "IDLE", "朝阳区充电站");
+        addCharger("c0000000-0000-4000-8000-000000000004", "HD-A01", "FAST", "IDLE", "海淀区充电站");
+        addCharger("c0000000-0000-4000-8000-000000000005", "HD-B01", "SLOW", "FAULT", "海淀区充电站");
+        addCharger("c0000000-0000-4000-8000-000000000006", "PD-A01", "FAST", "IDLE", "浦东新区充电站");
+        addCharger("c0000000-0000-4000-8000-000000000007", "PD-B01", "SLOW", "IDLE", "浦东新区充电站");
     }
 
     private static void addCharger(String id, String code, String type, String status, String stationName) {

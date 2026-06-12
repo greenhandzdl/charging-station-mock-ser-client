@@ -119,6 +119,55 @@ public class ApiClient {
     }
 
     /**
+     * Authenticate using the charger-login endpoint (for charger device identity).
+     * This is SEPARATE from normal user login — it uses the charger_users table
+     * and returns a charger-scoped JWT.
+     *
+     * <p>POST /api/v1/auth/charger-login
+     *
+     * @param phone    charger phone (from charger_users.phone)
+     * @param password charger password
+     * @return the charger-scoped JWT access token
+     * @throws IOException  if the HTTP request fails
+     * @throws ApiException if the backend returns a non-2xx response
+     */
+    public String chargerLogin(String phone, String password) throws IOException, ApiException {
+        checkOffline();
+        Map<String, String> body = new HashMap<>();
+        body.put("phone", phone);
+        body.put("password", password);
+
+        String json = objectMapper.writeValueAsString(body);
+        Request request = new Request.Builder()
+                .url(baseUrl + "/auth/charger-login")
+                .post(RequestBody.create(json, MediaType.parse("application/json")))
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            try (ResponseBody responseBody = response.body()) {
+                String responseStr = (responseBody != null) ? responseBody.string() : "";
+
+                if (!response.isSuccessful()) {
+                    throw new ApiException("Charger login failed", response.code(), responseStr);
+                }
+                if (responseStr.isEmpty()) {
+                    throw new IllegalStateException("Charger login response body is empty");
+                }
+
+                Map<String, Object> result = objectMapper.readValue(responseStr,
+                        new TypeReference<Map<String, Object>>() {});
+                String token = (String) result.get("accessToken");
+                if (token == null || token.isBlank()) {
+                    throw new ApiException("No token in charger login response", response.code(), responseStr);
+                }
+                this.authToken = token;
+                System.out.println("[ApiClient] Charger login successful: " + phone);
+                return token;
+            }
+        }
+    }
+
+    /**
      * Authenticate using an API Key for advanced permission mode.
      *
      * <p>Sends the API key via {@code Authorization: Bearer <apiKey>} header to
@@ -372,8 +421,8 @@ public class ApiClient {
     }
 
     /**
-     * Notify backend that charger has been plugged in (new flow).
-     * Uses X-Device-Token for device authentication.
+     * Notify backend that charger has been plugged in.
+     * Uses X-Charger-Token (charger JWT) for authentication.
      * POST /api/v1/chargers/{chargerId}/plug-in
      * Returns a Map with sessionId and other data.
      */
@@ -382,14 +431,14 @@ public class ApiClient {
         Request request = new Request.Builder()
                 .url(baseUrl + "/chargers/" + chargerId + "/plug-in")
                 .post(RequestBody.create("", MediaType.parse("application/json")))
-                .addHeader("X-Device-Token", AppConfig.DEVICE_TOKEN)
+                .addHeader("X-Charger-Token", authToken)
                 .build();
         return executeMapRequest(request);
     }
 
     /**
      * Notify backend that charger has been unplugged.
-     * Uses X-Device-Token for device authentication.
+     * Uses X-Charger-Token (charger JWT) for authentication.
      * POST /api/v1/chargers/{chargerId}/unplug
      */
     public Map<String, Object> unplugCharger(String chargerId) throws IOException, ApiException {
@@ -397,7 +446,7 @@ public class ApiClient {
         Request request = new Request.Builder()
                 .url(baseUrl + "/chargers/" + chargerId + "/unplug")
                 .post(RequestBody.create("", MediaType.parse("application/json")))
-                .addHeader("X-Device-Token", AppConfig.DEVICE_TOKEN)
+                .addHeader("X-Charger-Token", authToken)
                 .build();
         return executeMapRequest(request);
     }

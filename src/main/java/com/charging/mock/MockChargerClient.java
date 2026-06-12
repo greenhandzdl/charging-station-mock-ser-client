@@ -247,15 +247,32 @@ public class MockChargerClient extends JFrame
         }
 
         try {
-            String code = getCurrentChargerCode();
-            if (code != null) {
-                apiClient.sendHeartbeat(code);
+            // Read the selected charger from the combo box (not the plugged-in state)
+            String code = getSelectedChargerCode();
+            if (code == null) {
+                // Don't send heartbeat when no charger is selected
+                setHeartbeatAlive(true); // still consider connection alive, just no charger selected
+                return;
             }
+            apiClient.sendHeartbeat(code);
             setHeartbeatAlive(true);
         } catch (Exception ex) {
             setHeartbeatAlive(false);
             System.out.println("[Heartbeat] FAILED: " + ex.getMessage());
         }
+    }
+
+    /**
+     * Get the charger code from the currently SELECTED combo box item.
+     * Returns null if no valid charger is selected (placeholder item).
+     */
+    private String getSelectedChargerCode() {
+        ChargerUIPanel.ChargerItem item = (ChargerUIPanel.ChargerItem) chargerPanel.chargerCombo.getSelectedItem();
+        if (item == null || item.id == null) {
+            return null;
+        }
+        // The ChargerItem.code field holds the charger code (e.g. "CY-A01")
+        return item.code;
     }
 
     /**
@@ -423,14 +440,21 @@ public class MockChargerClient extends JFrame
 
     private void doLogin() {
         try {
-            String token = apiClient.login(AppConfig.MOCK_USER_USERNAME, AppConfig.MOCK_USER_PASSWORD);
-            this.authenticated = true;
-
-            String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
-            System.out.println("[" + mode + "模式] Login successful. Token: "
-                    + token.substring(0, Math.min(20, token.length())) + "...");
-
-            // Update title with mode prefix
+            if (AppConfig.USE_CHARGER_AUTH) {
+                // Use charger identity login (charger_users table)
+                String token = apiClient.chargerLogin(AppConfig.CHARGER_PHONE, AppConfig.CHARGER_PASSWORD);
+                this.authenticated = true;
+                String identityInfo = AppConfig.CHARGER_PHONE;
+                System.out.println("[充电桩模式] Login successful. Identity: " + identityInfo
+                        + " Token: " + token.substring(0, Math.min(20, token.length())) + "...");
+            } else {
+                // Legacy user login (users table)
+                String token = apiClient.login(AppConfig.MOCK_USER_USERNAME, AppConfig.MOCK_USER_PASSWORD);
+                this.authenticated = true;
+                String mode = AppConfig.IS_ADVANCED_MODE ? "高级" : "普通";
+                System.out.println("[" + mode + "模式] Login successful. Token: "
+                        + token.substring(0, Math.min(20, token.length())) + "...");
+            }
             updateTitleBar();
         } catch (Exception e) {
             System.out.println("Backend login failed (non-fatal): " + e.getMessage());
@@ -490,7 +514,7 @@ public class MockChargerClient extends JFrame
         selectedChargerId = chargerId;
 
         try {
-            // Call backend plug-in API with device token
+            // Call backend plug-in API with charger JWT (X-Charger-Token)
             Map<String, Object> result = apiClient.plugInCharger(chargerId);
             currentSessionId = (String) result.get("sessionId");
 
@@ -513,7 +537,7 @@ public class MockChargerClient extends JFrame
     public boolean onUnplug() {
         if (selectedChargerId != null) {
             try {
-                // Call backend unplug API with device token
+                // Call backend unplug API with charger JWT
                 Map<String, Object> result = apiClient.unplugCharger(selectedChargerId);
                 System.out.println("[Unplug] Charger released: " + result);
             } catch (Exception e) {
