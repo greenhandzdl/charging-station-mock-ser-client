@@ -371,6 +371,37 @@ public class ApiClient {
         }
     }
 
+    /**
+     * Notify backend that charger has been plugged in (new flow).
+     * Uses X-Device-Token for device authentication.
+     * POST /api/v1/chargers/{chargerId}/plug-in
+     * Returns a Map with sessionId and other data.
+     */
+    public Map<String, Object> plugInCharger(String chargerId) throws IOException, ApiException {
+        checkOffline();
+        Request request = new Request.Builder()
+                .url(baseUrl + "/chargers/" + chargerId + "/plug-in")
+                .post(RequestBody.create("", MediaType.parse("application/json")))
+                .addHeader("X-Device-Token", AppConfig.DEVICE_TOKEN)
+                .build();
+        return executeMapRequest(request);
+    }
+
+    /**
+     * Notify backend that charger has been unplugged.
+     * Uses X-Device-Token for device authentication.
+     * POST /api/v1/chargers/{chargerId}/unplug
+     */
+    public Map<String, Object> unplugCharger(String chargerId) throws IOException, ApiException {
+        checkOffline();
+        Request request = new Request.Builder()
+                .url(baseUrl + "/chargers/" + chargerId + "/unplug")
+                .post(RequestBody.create("", MediaType.parse("application/json")))
+                .addHeader("X-Device-Token", AppConfig.DEVICE_TOKEN)
+                .build();
+        return executeMapRequest(request);
+    }
+
 
     // ===== Heartbeat =====
 

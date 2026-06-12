@@ -27,6 +27,8 @@ public final class AppConfig {
 
     public static final String MOCK_USER_PASSWORD = getEnvOrDefault("MOCK_PASSWORD", "charger123");
 
+    public static final String DEVICE_TOKEN = "dev_token_c001";
+
     public static final int QR_CODE_WIDTH = getEnvIntOrDefault("QR_CODE_WIDTH", 200);
 
     public static final int QR_CODE_HEIGHT = getEnvIntOrDefault("QR_CODE_HEIGHT", 200);

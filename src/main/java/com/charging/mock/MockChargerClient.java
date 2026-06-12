@@ -64,6 +64,7 @@ public class MockChargerClient extends JFrame
     private boolean heartbeatAlive;
     private String selectedChargerId;
     private String currentChargeRecordId;
+    private String currentSessionId;
     /** 从后端 API 获取的充电桩列表缓存 */
     private List<Map<String, Object>> fetchedChargers;
 
@@ -487,50 +488,51 @@ public class MockChargerClient extends JFrame
             return false;
         }
         selectedChargerId = chargerId;
-        // Regenerate QR for the plugged charger
-        chargerPanel.generateQrForCharger(chargerId);
 
-        // If there is a pending charge record, notify the backend that the charger has been plugged in
-        if (currentChargeRecordId != null) {
-            boolean plugInSuccess = apiClient.plugIn(currentChargeRecordId);
-            if (plugInSuccess) {
-                // Start simulation now that the charger is plugged in
-                chargeSimulator.startSimulation();
-                chargerPanel.setStatusText("已插枪，充电中...",
-                        new Color(0x90, 0xEE, 0x90));
-                chargerPanel.setPluggedIn(true);
-                // Start UI update timer (every 1 second)
-                if (uiUpdateTimer != null) uiUpdateTimer.stop();
-                uiUpdateTimer = new Timer(1000, e -> updateChargingUI());
-                uiUpdateTimer.start();
-                System.out.println("[PlugIn] Charge started for record: " + currentChargeRecordId);
-                return true;
-            } else {
-                chargerPanel.setStatusText("插枪失败 — 后端未确认", Color.PINK);
-                return false;
-            }
+        try {
+            // Call backend plug-in API with device token
+            Map<String, Object> result = apiClient.plugInCharger(chargerId);
+            currentSessionId = (String) result.get("sessionId");
+
+            // Regenerate QR with sessionId
+            chargerPanel.generateQrForCharger(chargerId, currentSessionId);
+
+            chargerPanel.setPluggedIn(true);
+            chargerPanel.setStatusText("已插枪 — 请使用Flutter App扫描二维码启动充电",
+                    new Color(0xFF, 0xE4, 0xB5));
+            System.out.println("[PlugIn] Charger " + chargerId + " plugged in, sessionId=" + currentSessionId);
+            return true;
+        } catch (Exception e) {
+            chargerPanel.setStatusText("插枪失败: " + e.getMessage(), Color.PINK);
+            System.out.println("[PlugIn] Failed: " + e.getMessage());
+            return false;
         }
-
-        chargerPanel.setStatusText("已插枪 — 请使用Flutter App扫描二维码启动充电",
-                new Color(0xFF, 0xE4, 0xB5));
-        return true;
     }
 
     @Override
     public boolean onUnplug() {
-        // If there's an active charge, stop it
-        if (currentChargeRecordId != null) {
+        if (selectedChargerId != null) {
             try {
-                ChargeRecord result = apiClient.stopCharge(currentChargeRecordId);
-                System.out.println("[Unplug] Charge stopped: " + result);
-                currentChargeRecordId = null;
-                if (uiUpdateTimer != null) uiUpdateTimer.stop();
-                chargeSimulator.reset();
+                // Call backend unplug API with device token
+                Map<String, Object> result = apiClient.unplugCharger(selectedChargerId);
+                System.out.println("[Unplug] Charger released: " + result);
             } catch (Exception e) {
-                System.out.println("[Unplug] Failed to stop charge: " + e.getMessage());
+                System.out.println("[Unplug] Failed to call unplug API: " + e.getMessage());
             }
+
+            // Stop any active simulation
+            if (currentChargeRecordId != null) {
+                chargeSimulator.stopSimulation();
+                currentChargeRecordId = null;
+            }
+            if (uiUpdateTimer != null) {
+                uiUpdateTimer.stop();
+            }
+            chargeSimulator.reset();
         }
+
         selectedChargerId = null;
+        currentSessionId = null;
         chargerPanel.resetToIdle();
         return true;
     }

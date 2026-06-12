@@ -191,7 +191,7 @@ class ChargerUIPanelTest {
         assertFalse(panel.isPluggedIn());
         assertTrue(panel.chargerCombo.isEnabled());
         // QR is preserved after unplug — not cleared
-        assertNull(getQrIcon()); // no icon cleared, text set after selection
+        assertNotNull(getQrIcon()); // QR icon preserved after reset
     }
 
     @Test

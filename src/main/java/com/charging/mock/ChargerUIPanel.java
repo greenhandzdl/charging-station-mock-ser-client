@@ -335,8 +335,8 @@ public class ChargerUIPanel extends JPanel {
         if (item != null && item.id != null) {
             currentChargerId = item.id;
             plugButton.setEnabled(!pluggedIn);
-            // Auto-generate QR when charger is selected (before plug)
-            generateQrForCharger(item.id);
+            // Auto-generate QR when charger is selected (before plug, no sessionId yet)
+            generateQrForCharger(item.id, null);
         } else {
             currentChargerId = null;
             plugButton.setEnabled(false);
@@ -346,13 +346,14 @@ public class ChargerUIPanel extends JPanel {
     }
 
     /**
-     * Generate a QR code containing charger identity for Flutter to scan.
-     * Flutter scans this QR and calls the backend start-charge API directly.
+     * Generate a QR code containing charger identity AND sessionId for Flutter to scan.
+     * Flutter scans this QR, calls selectCharger with sessionId, then starts charge.
      */
-    public void generateQrForCharger(String chargerId) {
+    public void generateQrForCharger(String chargerId, String sessionId) {
         String qrData = String.format(
-                "{\"chargerId\":\"%s\",\"stationName\":\"%s\"}",
+                "{\"chargerId\":\"%s\",\"sessionId\":\"%s\",\"stationName\":\"%s\"}",
                 chargerId,
+                sessionId != null ? sessionId : "",
                 chargerCombo.getSelectedItem() != null
                         ? chargerCombo.getSelectedItem().toString()
                         : "unknown"
