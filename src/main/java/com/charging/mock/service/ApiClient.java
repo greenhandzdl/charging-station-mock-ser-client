@@ -119,22 +119,22 @@ public class ApiClient {
     }
 
     /**
-     * Authenticate using the charger-login endpoint (for charger device identity).
+     * Authenticate using the charger-login endpoint (for charger/station identity).
      * This is SEPARATE from normal user login — it uses the charger_users table
-     * and returns a charger-scoped JWT.
+     * (login_id + password) and returns a charger-scoped JWT with permissionLevel.
      *
      * <p>POST /api/v1/auth/charger-login
      *
-     * @param phone    charger phone (from charger_users.phone)
+     * @param loginId  charger login ID (from charger_users.login_id)
      * @param password charger password
      * @return the charger-scoped JWT access token
      * @throws IOException  if the HTTP request fails
      * @throws ApiException if the backend returns a non-2xx response
      */
-    public String chargerLogin(String phone, String password) throws IOException, ApiException {
+    public String chargerLogin(String loginId, String password) throws IOException, ApiException {
         checkOffline();
         Map<String, String> body = new HashMap<>();
-        body.put("phone", phone);
+        body.put("loginId", loginId);
         body.put("password", password);
 
         String json = objectMapper.writeValueAsString(body);

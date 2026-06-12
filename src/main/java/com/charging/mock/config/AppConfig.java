@@ -27,13 +27,13 @@ public final class AppConfig {
 
     public static final String MOCK_USER_PASSWORD = getEnvOrDefault("MOCK_PASSWORD", "mock123");
 
-    /** 充电桩登录手机号（charger_users 表的 phone 字段） */
-    public static final String CHARGER_PHONE = getEnvOrDefault("CHARGER_PHONE", "charger_global");
+    /** 充电桩站登录账号（charger_users 表的 login_id 字段） */
+    public static final String CHARGER_LOGIN_ID = getEnvOrDefault("CHARGER_LOGIN_ID", "station_global");
 
-    /** 充电桩登录密码（charger_users 表的密码，默认 dev123） */
+    /** 充电桩站登录密码（charger_users 表的密码，默认 dev123） */
     public static final String CHARGER_PASSWORD = getEnvOrDefault("CHARGER_PASSWORD", "dev123");
 
-    /** 是否使用充电桩身份登录（charger-login endpoint）而非用户身份 */
+    /** 是否使用充电桩站身份登录（charger-login endpoint）而非用户身份 */
     public static final boolean USE_CHARGER_AUTH = getEnvBoolOrDefault("USE_CHARGER_AUTH", true);
 
     public static final int QR_CODE_WIDTH = getEnvIntOrDefault("QR_CODE_WIDTH", 200);

@@ -83,6 +83,9 @@ public class MockChargerClient extends JFrame
      * Build the initial window title based on permission mode.
      */
     private static String buildTitle() {
+        if (AppConfig.USE_CHARGER_AUTH) {
+            return "模拟充电站 [STATION_GLOBAL] - 充电站管理系统";
+        }
         if (AppConfig.IS_ADVANCED_MODE) {
             return "Mock充电机 [高级模式] - 充电站管理系统";
         }
@@ -320,7 +323,9 @@ public class MockChargerClient extends JFrame
 
     private void updateTitleBar() {
         StringBuilder sb = new StringBuilder();
-        if (AppConfig.IS_ADVANCED_MODE) {
+        if (AppConfig.USE_CHARGER_AUTH) {
+            sb.append("模拟充电站 [STATION_GLOBAL]");
+        } else if (AppConfig.IS_ADVANCED_MODE) {
             sb.append("Mock充电机 [高级模式]");
         } else {
             sb.append("Mock充电机 [普通模式]");
@@ -441,11 +446,10 @@ public class MockChargerClient extends JFrame
     private void doLogin() {
         try {
             if (AppConfig.USE_CHARGER_AUTH) {
-                // Use charger identity login (charger_users table)
-                String token = apiClient.chargerLogin(AppConfig.CHARGER_PHONE, AppConfig.CHARGER_PASSWORD);
+                // Use charger identity login (charger_users table, STATION_GLOBAL permission)
+                String token = apiClient.chargerLogin(AppConfig.CHARGER_LOGIN_ID, AppConfig.CHARGER_PASSWORD);
                 this.authenticated = true;
-                String identityInfo = AppConfig.CHARGER_PHONE;
-                System.out.println("[充电桩模式] Login successful. Identity: " + identityInfo
+                System.out.println("[充电桩模式] Login successful. Identity: " + AppConfig.CHARGER_LOGIN_ID
                         + " Token: " + token.substring(0, Math.min(20, token.length())) + "...");
             } else {
                 // Legacy user login (users table)
