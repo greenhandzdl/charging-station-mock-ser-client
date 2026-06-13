@@ -41,11 +41,13 @@ public class ChargerUIPanel extends JPanel {
     private static final int TEST_BUTTON_MIN_WIDTH = 140;
     private static final int TEST_BUTTON_HEIGHT = 38;
 
-    // Charger selection — combo + checkbox list
+    // Charger selection
     final JComboBox<ChargerItem> chargerCombo;  // package-private for MockChargerClient access
     private final JButton refreshChargersBtn;
-    private final JList<ChargerItem> chargerCheckList;
-    private final DefaultListModel<ChargerItem> checkListModel;
+
+    // Multi-charger checkbox panel
+    private final JPanel chargerCheckBoxPanel;
+    private final List<JCheckBox> chargerCheckBoxes = new ArrayList<>();
     private final JButton applySelectedBtn;
 
     // Status
@@ -193,22 +195,20 @@ public class ChargerUIPanel extends JPanel {
         centerPanel.add(plugPanel);
         centerPanel.add(Box.createVerticalStrut(10));
 
-        // ---- Multi-charger selection panel ----
-        JPanel multiChargerPanel = new JPanel(new BorderLayout(5, 2));
-        multiChargerPanel.setBorder(new TitledBorder("选择要模拟的充电桩（勾选+应用）"));
-        checkListModel = new DefaultListModel<>();
-        chargerCheckList = new JList<>(checkListModel);
-        chargerCheckList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        chargerCheckList.setVisibleRowCount(3);
-        JScrollPane checkScroll = new JScrollPane(chargerCheckList);
-        checkScroll.setPreferredSize(new Dimension(450, 80));
-        applySelectedBtn = new JButton("应用");
+        // ---- 多桩勾选面板 ----
+        chargerCheckBoxPanel = new JPanel();
+        chargerCheckBoxPanel.setLayout(new BoxLayout(chargerCheckBoxPanel, BoxLayout.Y_AXIS));
+        chargerCheckBoxPanel.setBorder(new TitledBorder("勾选要模拟的充电桩"));
+        JScrollPane checkScroll = new JScrollPane(chargerCheckBoxPanel);
+        checkScroll.setPreferredSize(new Dimension(450, 100));
+        applySelectedBtn = new JButton("应用选中");
         applySelectedBtn.addActionListener(e -> callbacks.onApplySelected(getSelectedChargerIds()));
         JPanel applyPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         applyPanel.add(applySelectedBtn);
-        multiChargerPanel.add(checkScroll, BorderLayout.CENTER);
-        multiChargerPanel.add(applyPanel, BorderLayout.SOUTH);
-        centerPanel.add(multiChargerPanel);
+        JPanel multiPanel = new JPanel(new BorderLayout());
+        multiPanel.add(checkScroll, BorderLayout.CENTER);
+        multiPanel.add(applyPanel, BorderLayout.SOUTH);
+        centerPanel.add(multiPanel);
         centerPanel.add(Box.createVerticalStrut(10));
 
         // Test scenario buttons — 3 in a row, with adequate size
@@ -255,25 +255,37 @@ public class ChargerUIPanel extends JPanel {
     // ===== Public API =====
 
     /**
-     * Populate the charger combo box with items fetched from the backend.
+     * Populate the charger combo and checkbox list with items fetched from the backend.
      */
     public void setChargerList(List<Map<String, Object>> chargers) {
+        // Reset combo box
         chargerCombo.removeAllItems();
-        checkListModel.clear();
-        // Add a placeholder
         chargerCombo.addItem(new ChargerItem(null, "-- 请选择充电桩 --", ""));
         for (Map<String, Object> c : chargers) {
             String id = String.valueOf(c.get("id"));
             String code = (String) c.getOrDefault("chargerCode", id);
             String status = (String) c.getOrDefault("status", "UNKNOWN");
-            ChargerItem item = new ChargerItem(id, code, status);
-            chargerCombo.addItem(item);
-            checkListModel.addElement(item);
+            chargerCombo.addItem(new ChargerItem(id, code, status));
         }
         if (!chargers.isEmpty()) {
             chargerCombo.setSelectedIndex(1);
             onChargerSelected();
         }
+
+        // Reset checkbox panel
+        chargerCheckBoxPanel.removeAll();
+        chargerCheckBoxes.clear();
+        for (Map<String, Object> c : chargers) {
+            String id = String.valueOf(c.get("id"));
+            String code = (String) c.getOrDefault("chargerCode", id);
+            String status = (String) c.getOrDefault("status", "UNKNOWN");
+            JCheckBox cb = new JCheckBox(code + "  [" + status + "]");
+            cb.putClientProperty("chargerId", id);
+            chargerCheckBoxes.add(cb);
+            chargerCheckBoxPanel.add(cb);
+        }
+        chargerCheckBoxPanel.revalidate();
+        chargerCheckBoxPanel.repaint();
     }
 
     /**
@@ -281,18 +293,13 @@ public class ChargerUIPanel extends JPanel {
      */
     public List<String> getSelectedChargerIds() {
         List<String> ids = new ArrayList<>();
-        int[] selected = chargerCheckList.getSelectedIndices();
-        for (int i : selected) {
-            ChargerItem item = checkListModel.getElementAt(i);
-            if (item != null && item.id != null) {
-                ids.add(item.id);
+        for (JCheckBox cb : chargerCheckBoxes) {
+            if (cb.isSelected()) {
+                String id = (String) cb.getClientProperty("chargerId");
+                if (id != null) ids.add(id);
             }
         }
         return ids;
-    }
-
-    public Set<String> getActiveChargerIds() {
-        return selectedChargerIds;
     }
 
     /**
@@ -368,7 +375,9 @@ public class ChargerUIPanel extends JPanel {
     public void setPluggedIn(boolean plugged) {
         this.pluggedIn = plugged;
         plugButton.setEnabled(!plugged && currentChargerId != null);
-        unplugButton.setEnabled(plugged);
+        // Requirement: unplug should ALWAYS be available if a charger is selected
+        // to allow for force-releasing occupied chargers.
+        unplugButton.setEnabled(currentChargerId != null);
     }
 
     public void setStatusText(String text, Color bg) {
@@ -382,11 +391,13 @@ public class ChargerUIPanel extends JPanel {
         if (item != null && item.id != null) {
             currentChargerId = item.id;
             plugButton.setEnabled(!pluggedIn);
+            unplugButton.setEnabled(true); // Enable on selection
             // Auto-generate QR when charger is selected (before plug, no sessionId yet)
             generateQrForCharger(item.id, null);
         } else {
             currentChargerId = null;
             plugButton.setEnabled(false);
+            unplugButton.setEnabled(false); // Disable if none selected
             qrCodeLabel.setIcon(null);
             qrCodeLabel.setText("（请选择充电桩）");
         }

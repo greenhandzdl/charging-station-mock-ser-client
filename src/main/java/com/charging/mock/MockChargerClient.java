@@ -549,13 +549,23 @@ public class MockChargerClient extends JFrame
 
     @Override
     public boolean onUnplug() {
-        if (selectedChargerId != null) {
+        String chargerIdToUnplug = selectedChargerId;
+        if (chargerIdToUnplug == null) {
+            // Requirement: unplug should ALWAYS be available.
+            // If no charger was "locally" plugged in, try to release the currently selected one in the UI.
+            ChargerUIPanel.ChargerItem item = (ChargerUIPanel.ChargerItem) chargerPanel.chargerCombo.getSelectedItem();
+            if (item != null && item.id != null) {
+                chargerIdToUnplug = item.id;
+            }
+        }
+
+        if (chargerIdToUnplug != null) {
             try {
                 // Call backend unplug API with charger JWT
-                Map<String, Object> result = apiClient.unplugCharger(selectedChargerId);
-                System.out.println("[Unplug] Charger released: " + result);
+                Map<String, Object> result = apiClient.unplugCharger(chargerIdToUnplug);
+                System.out.println("[Unplug] Charger released via API: " + result);
             } catch (Exception e) {
-                System.out.println("[Unplug] Failed to call unplug API: " + e.getMessage());
+                System.err.println("[Unplug] Failed to call unplug API (ignoring to allow local reset): " + e.getMessage());
             }
 
             // Stop any active simulation
