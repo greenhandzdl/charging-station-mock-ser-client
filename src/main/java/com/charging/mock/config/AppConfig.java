@@ -21,7 +21,8 @@ public final class AppConfig {
     private AppConfig() {
     }
 
-    public static final String BACKEND_URL = getEnvOrDefault("BACKEND_URL", "http://localhost:8080/api/v1");
+    // public static final String BACKEND_URL = getEnvOrDefault("BACKEND_URL", "http://localhost:8080/api/v1");
+    public static final String BACKEND_URL = getEnvOrDefault("BACKEND_URL", "https://backend-charging-station.greenhandzdl.moe/api/v1");
 
     public static final String MOCK_USER_USERNAME = getEnvOrDefault("MOCK_USER", "mock_user");
 

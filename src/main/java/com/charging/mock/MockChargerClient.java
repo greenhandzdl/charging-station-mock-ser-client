@@ -136,7 +136,7 @@ public class MockChargerClient extends JFrame
 
     private void initHeartbeatTimer() {
         heartbeatTimer = new Timer(HEARTBEAT_INTERVAL_MS, e -> onHeartbeatTick());
-        heartbeatTimer.setInitialDelay(5_000); // first heartbeat after 5s
+        heartbeatTimer.setInitialDelay(1_000); // first heartbeat after 1s
     }
 
     // ===== HTTP Server (push notifications) =====
@@ -246,29 +246,36 @@ public class MockChargerClient extends JFrame
         // If offline mode is active, immediately mark heartbeat as failed
         if (NetworkSimulator.isOffline()) {
             setHeartbeatAlive(false);
-            // 检测到断线 → 自动停止所有模拟充电
             if (chargeSimulator.isCharging()) {
                 ChargeSimulator.SimulationResult result = chargeSimulator.stopSimulation();
                 chargerPanel.setPluggedIn(false);
                 selectedChargerId = null;
-                chargerPanel.setStatusText("⚠ 离线中 — 充电已停止: " + result, new java.awt.Color(0xFF, 0xCC, 0xCC));
+                chargerPanel.setStatusText("离线中 — 充电已停止: " + result, new java.awt.Color(0xFF, 0xCC, 0xCC));
                 System.out.println("[离线检测] 充电已停止: " + result);
             } else {
-                chargerPanel.setStatusText("⚠ 离线中", new java.awt.Color(0xFF, 0xCC, 0xCC));
+                chargerPanel.setStatusText("离线中", new java.awt.Color(0xFF, 0xCC, 0xCC));
             }
             return;
         }
 
         try {
-            // Read the selected charger from the combo box (not the plugged-in state)
-            String code = getSelectedChargerCode();
-            if (code == null) {
-                // Don't send heartbeat when no charger is selected
-                setHeartbeatAlive(true); // still consider connection alive, just no charger selected
+            // Send heartbeat for ALL fetched chargers so all are marked ONLINE
+            if (fetchedChargers == null || fetchedChargers.isEmpty()) {
+                setHeartbeatAlive(true);
                 return;
             }
-            apiClient.sendHeartbeat(code);
-            setHeartbeatAlive(true);
+            boolean allOk = true;
+            for (Map<String, Object> c : fetchedChargers) {
+                Object code = c.get("chargerCode");
+                if (code == null) continue;
+                try {
+                    apiClient.sendHeartbeat(code.toString());
+                } catch (Exception e) {
+                    allOk = false;
+                    System.out.println("[Heartbeat] FAILED for " + code + ": " + e.getMessage());
+                }
+            }
+            setHeartbeatAlive(allOk);
         } catch (Exception ex) {
             setHeartbeatAlive(false);
             System.out.println("[Heartbeat] FAILED: " + ex.getMessage());
