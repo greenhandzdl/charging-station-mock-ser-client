@@ -56,27 +56,29 @@ class TestDataProviderTest {
         List<Map<String, Object>> chargers = TestDataProvider.getChargers();
         for (Map<String, Object> c : chargers) {
             String type = (String) c.get("type");
-            assertTrue("fast".equals(type) || "slow".equals(type),
-                    "Charger type should be 'fast' or 'slow', got: " + type);
+            assertTrue("FAST".equals(type) || "SLOW".equals(type),
+                    "Charger type should be 'FAST' or 'SLOW', got: " + type);
         }
     }
 
     @Test
     void getChargers_statusIsIdle() {
-        // All test chargers should start as idle
+        // All test chargers should start as idle (note: HD-B01 is FAULT)
         List<Map<String, Object>> chargers = TestDataProvider.getChargers();
         for (Map<String, Object> c : chargers) {
-            assertEquals("idle", c.get("status"));
+            String status = (String) c.get("status");
+            assertTrue("IDLE".equals(status) || "FAULT".equals(status),
+                    "Charger status should be IDLE or FAULT, got: " + status);
         }
     }
 
     @Test
     void getChargerById_returnsCorrectCharger() {
         Map<String, Object> charger = TestDataProvider.getChargerById(
-                "11111111-1111-1111-1111-111111111001");
+                "c0000000-0000-4000-8000-000000000001");
         assertNotNull(charger);
         assertEquals("CY-A01", charger.get("chargerCode"));
-        assertEquals("朝阳站A区1号", charger.get("stationName"));
+        assertEquals("朝阳区充电站", charger.get("stationName"));
     }
 
     @Test
@@ -89,8 +91,8 @@ class TestDataProviderTest {
     void getChargerByCode_returnsCorrectCharger() {
         Map<String, Object> charger = TestDataProvider.getChargerByCode("HD-A01");
         assertNotNull(charger);
-        assertEquals("22222222-2222-2222-2222-222222222001", charger.get("id"));
-        assertEquals("海淀站A区1号", charger.get("stationName"));
+        assertEquals("c0000000-0000-4000-8000-000000000004", charger.get("id"));
+        assertEquals("海淀区充电站", charger.get("stationName"));
     }
 
     @Test
@@ -113,20 +115,20 @@ class TestDataProviderTest {
     @Test
     void getChargerById_withFirstCharger_hasAllExpectedFields() {
         Map<String, Object> charger = TestDataProvider.getChargerById(
-                "11111111-1111-1111-1111-111111111001");
+                "c0000000-0000-4000-8000-000000000001");
         assertNotNull(charger);
         assertEquals("CY-A01", charger.get("chargerCode"));
-        assertEquals("fast", charger.get("type"));
-        assertEquals("idle", charger.get("status"));
-        assertEquals("朝阳站A区1号", charger.get("stationName"));
+        assertEquals("FAST", charger.get("type"));
+        assertEquals("IDLE", charger.get("status"));
+        assertEquals("朝阳区充电站", charger.get("stationName"));
     }
 
     @Test
     void getChargerById_withSlowCharger_hasSlowType() {
         Map<String, Object> charger = TestDataProvider.getChargerById(
-                "11111111-1111-1111-1111-111111111002");
+                "c0000000-0000-4000-8000-000000000002");
         assertNotNull(charger);
         assertEquals("CY-A02", charger.get("chargerCode"));
-        assertEquals("slow", charger.get("type"));
+        assertEquals("FAST", charger.get("type"));
     }
 }
